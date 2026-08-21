@@ -5,9 +5,10 @@
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
 > **現在の状態: M1（Walking Skeleton）着手中。** `packages/app-spec`（Spec スキーマ）・`packages/expr`
-> （制限式パーサ）・`packages/spec-compiler`（Spec→PostgreSQL DDL/RLS）はテスト付きで動作し、
-> spec-compiler は実際の Postgres に対する統合テストで RLS の分離が機能することまで検証済みです。
-> AI Builder・App Runtime・Security Gate はまだ動くコードではありません。
+> （制限式パーサ）・`packages/spec-compiler`（Spec→PostgreSQL DDL/RLS）・`services/sdk-gateway`
+> （DB資格情報を唯一保持する層）・`packages/company-sdk`（そのHTTPクライアント）はテスト付きで動作し、
+> 実際のPostgresに対する統合テスト（HTTP経由も含む）でRLSによる分離が機能することまで検証済みです。
+> AI Builder・App Runtime のUI・Security Gate はまだ動くコードではありません。
 > 「今、実際に動くもの」は [ROADMAP.md](./ROADMAP.md) を参照してください。
 
 ## 一言でいうと
@@ -30,11 +31,12 @@ pnpm install
 pnpm build
 pnpm test                                                   # 全パッケージのユニットテスト
 pnpm --filter @aiappfactory/spec-compiler test:integration  # ローカルPostgresが必要（下記）
+pnpm --filter @aiappfactory/sdk-gateway test:integration
 ```
 
-統合テストは `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install postgresql@14`
-を想定）。使い捨てのデータベースとロールを作成し、成功・失敗にかかわらず `afterAll` で必ず削除します。
-CIにはまだ組み込んでいません（`ROADMAP.md` 参照）。
+両方の統合テストは `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install
+postgresql@14` を想定）。使い捨てのデータベースとロールを作成し、成功・失敗にかかわらず `afterAll`
+で必ず削除します。CIにはまだ組み込んでいません（`ROADMAP.md` 参照）。
 
 `templates/` に3つのサンプル Spec（営業日報・経費申請・会議室予約）があります。
 

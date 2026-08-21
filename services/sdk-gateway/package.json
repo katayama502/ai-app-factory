@@ -1,0 +1,34 @@
+{
+  "name": "@aiappfactory/sdk-gateway",
+  "version": "0.1.0",
+  "description": "The server side of Company SDK — the only process holding app DB credentials (02_SECURITY §7). Executes CRUD against an app's already-provisioned schema (spec-compiler's job), propagating the caller's execution context via SET LOCAL so RLS (ADR-007) does the actual authorization.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:integration": "vitest run test/integration",
+    "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
+  },
+  "dependencies": {
+    "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/expr": "workspace:*",
+    "fastify": "^5.1.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@aiappfactory/company-sdk": "workspace:*",
+    "@aiappfactory/spec-compiler": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

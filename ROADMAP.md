@@ -44,14 +44,40 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
   - Not yet built: diff-based re-migration for publishing a *new version* of an existing app
     (current `compileAppSpec` only handles first-publish DDL) — deferred, matches
     04_IMPLEMENTATION §8.4 ("DBマイグレーションのロールバックは自動化しない").
-- [ ] `runtime/data`: Spec → CRUD API (Fastify + Kysely)
+- [x] `company-sdk` + `sdk-gateway` minimal (database only — no `company.auth` yet, see below):
+      `sdk-gateway` (Fastify) is the only process holding an app's DB role/pool and executes
+      list/create/update/delete against the schema `spec-compiler` provisioned, propagating the
+      caller's `{userId, department, roles}` via the same `SET LOCAL` pattern proven in
+      spec-compiler's tests. `company-sdk` is a thin HTTP client over it — the only interface
+      application code is meant to use to touch data (01_ARCHITECTURE §5.1). Also implements the
+      two behaviors that make the SDK a *security* boundary, not just convenience (§5.3): `actor`
+      fields are always set from the caller's `userId`, never from client-supplied data, and
+      updating an `actor` field afterward is silently ignored. Cross-user access attempts surface
+      as 404 (S-05 — hide existence, don't just deny), not 403. 8 unit tests (company-sdk 4,
+      sdk-gateway 4) + a 10-test integration suite that drives the FULL path — Company SDK → HTTP →
+      sdk-gateway → real Postgres RLS — over an actual `fastify.listen()` port, including actor
+      auto-injection, unknown-field rejection (400), cross-user update (404), and delete rejected
+      because no role in the Spec grants it (403). Run via
+      `pnpm --filter @aiappfactory/sdk-gateway test:integration`.
+  - `AppRegistry` is in-memory only — a real deployment reloads it from the Control Plane's
+    `apps`/`app_versions` tables and `encrypted_secrets` (`packages/db`, not yet built). Whatever
+    process registers an app today does so by calling `spec-compiler` and handing the resulting
+    pool + schema name straight to the registry — there is no persistence yet.
+  - `company.auth.currentUser()` (01_ARCHITECTURE §5.2) isn't implemented — no Keycloak yet
+    (M4). `ExecutionContext` is currently just data the *caller* supplies; there is no session
+    verification. Do not treat this as production-ready auth — it's a placeholder for the shape
+    the real thing will have.
+  - DELETE is a real SQL `DELETE`, gated by spec-compiler's `FOR DELETE` RLS policy — NOT the
+    soft-delete (`deletedAt`) pattern the schema's column suggests. The `deletedAt` column exists
+    on every table but isn't wired into any query yet; don't assume soft-delete works.
+- [ ] `runtime/data`: the actual browser-facing REST API generated per Spec (currently only
+      `sdk-gateway`'s internal API exists — nothing external-facing yet)
 - [ ] `runtime/renderer`: Spec → form / list / dashboard UI (React)
-- [ ] `company-sdk` + `sdk-gateway` minimal (database + auth only)
 - [ ] `deploy-engine`: register a Spec, per-app subdomain routing (ADR-012), health check
 - [ ] Origin isolation (`__Host-` cookies, per-app CSP, COOP) + security test S-15
-- [ ] Wire the spec-compiler integration suite into CI (needs a Postgres service container in
-      `ci.yml`, plus deciding whether it stays Postgres-only or also runs against `docker
-      compose` for parity with the deploy target)
+- [ ] Wire the spec-compiler and sdk-gateway integration suites into CI (needs a Postgres service
+      container in `ci.yml`, plus deciding whether they stay Postgres-only or also run against
+      `docker compose` for parity with the deploy target)
 
 ## Later milestones (unstarted)
 

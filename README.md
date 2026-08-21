@@ -49,16 +49,18 @@ original 89-point concept that were deliberately cut or changed for v1.0) is in
 ## Repository layout
 
 ```
-apps/console/          Next.js — Builder UI / App Store / Admin / Setup Wizard (not started)
-apps/runtime/          Generic App Runtime that interprets a Spec (T1/T2) (not started)
-services/              Factory API, AI Gateway, AI Orchestrator, Security Gate, Deploy Engine, SDK Gateway (not started)
-packages/app-spec/     ★ The Spec schema, validator, and canonical hashing — the foundation everything else builds on
-packages/expr/         Restricted expression parser + compiler (ADR-010 computed fields, ADR-011 rowLevel → RLS)
-packages/spec-compiler/  Spec → PostgreSQL DDL/RLS (ADR-007) — includes a real-Postgres integration test suite
-packages/...           Company SDK, risk-engine, scanners, audit, db, ui, i18n (not started)
-policies/              Default Rego policies (Gate 1) (not started)
-templates/             App Spec templates, ready to run — the on-ramp for non-code contributions
-docs/adr/              Architecture Decision Records
+apps/console/           Next.js — Builder UI / App Store / Admin / Setup Wizard (not started)
+apps/runtime/           Generic App Runtime that interprets a Spec (T1/T2) (not started)
+services/sdk-gateway/   The only process holding app DB credentials — executes CRUD, enforces RLS's principal
+services/...            Factory API, AI Gateway, AI Orchestrator, Security Gate, Deploy Engine (not started)
+packages/app-spec/      ★ The Spec schema, validator, and canonical hashing — the foundation everything else builds on
+packages/expr/          Restricted expression parser + compiler (ADR-010 computed fields, ADR-011 rowLevel → RLS)
+packages/spec-compiler/ Spec → PostgreSQL DDL/RLS (ADR-007) — includes a real-Postgres integration test suite
+packages/company-sdk/   The only API app code may use to touch data — an HTTP client over sdk-gateway
+packages/...            risk-engine, scanners, audit, db, ui, i18n (not started)
+policies/               Default Rego policies (Gate 1) (not started)
+templates/              App Spec templates, ready to run — the on-ramp for non-code contributions
+docs/adr/               Architecture Decision Records
 ```
 
 See [`03_REPOSITORY_リポジトリ構成とOSS運営.md`](./docs/design/03_REPOSITORY_リポジトリ構成とOSS運営.md) for the
@@ -66,26 +68,35 @@ full target layout and OSS governance model.
 
 ## Try it today
 
-Three packages are real, tested code so far:
+Five packages are real, tested code so far — enough to prove the whole backend path from a Spec
+file to an authorized, isolated database write, with no AI and no UI in the loop yet:
 
 - **`packages/app-spec`** validates App Specs and enforces referential-integrity and
   security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
 - **`packages/expr`** parses and compiles the restricted `computed`/`rowLevel` expression
   grammar (ADR-010, ADR-011) to SQL.
 - **`packages/spec-compiler`** compiles a validated Spec to the PostgreSQL DDL and RLS policies
-  that provision an app's isolated schema (ADR-007). Its integration suite applies that SQL to
-  a real Postgres server and proves the row-level isolation actually holds — not just that the
-  generated SQL parses.
+  that provision an app's isolated schema (ADR-007).
+- **`services/sdk-gateway`** is the only process that holds an app's DB role — it executes
+  CRUD against the schema spec-compiler provisioned, propagating the caller's identity so RLS
+  can enforce it.
+- **`packages/company-sdk`** is the HTTP client to sdk-gateway; it's the only interface
+  application code is meant to use to touch data (01_ARCHITECTURE §5.1).
+
+Both spec-compiler's and sdk-gateway's integration suites apply real SQL to a real Postgres
+server and prove the row-level isolation actually holds end to end — including over an actual
+HTTP round-trip for sdk-gateway's — not just that the generated SQL parses.
 
 ```bash
 pnpm install
 pnpm build
-pnpm test                                                   # unit tests across all packages
-pnpm --filter @aiappfactory/spec-compiler test:integration  # needs a local Postgres — see below
+pnpm test                                                  # unit tests across all packages
+pnpm --filter @aiappfactory/spec-compiler test:integration # needs a local Postgres — see below
+pnpm --filter @aiappfactory/sdk-gateway test:integration
 ```
 
-The integration suite expects a reachable Postgres superuser at `127.0.0.1:5432` (this repo's
-dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). It creates one
+Both integration suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this repo's
+dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). Each creates one
 throwaway database and one throwaway role and drops both in `afterAll`, regardless of pass/fail.
 Not yet wired into CI — see `ROADMAP.md`.
 
