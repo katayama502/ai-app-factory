@@ -87,7 +87,9 @@ AI in the loop yet:
   application code is meant to use to touch data (01_ARCHITECTURE §5.1).
 - **`apps/runtime`** is the browser-facing piece: a REST API plus a server-rendered HTML MVP of
   the Spec renderer (form/list pages), authenticated with a placeholder dev-only Basic Auth
-  directory (real SSO is M4).
+  directory (real SSO is M4). Multiple apps can be served by one Runtime process, each on its
+  own hostname (ADR-012) — resolved from the request's Host header, never a URL path segment —
+  with per-response origin-isolation headers (COOP/CORP/X-Frame-Options/CSP).
 
 All three of spec-compiler's, sdk-gateway's, and apps/runtime's integration suites apply real
 requests to a real Postgres server and prove the row-level isolation actually holds end to
@@ -112,11 +114,14 @@ To actually click around instead of just running tests:
 
 ```bash
 pnpm dev:sample
-# → http://127.0.0.1:4200/apps/sales-daily-report/pages/0
-# login: alice/alice-dev, bob/bob-dev (sales_member), carol/carol-dev (sales_manager)
+# → http://sales-daily-report.apps.localhost:4200/pages/0
+# → http://expense-request.apps.localhost:4200/pages/0
+# login: alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
-This boots the `sales-daily-report` template against a persistent local `aiaf_dev` database — a
+This boots two different templates against a persistent local `aiaf_dev` database, each served
+from its own `*.apps.localhost` origin by the same Runtime process — `*.localhost` resolves to
+loopback automatically in Chrome and most resolvers (RFC 6761), no `/etc/hosts` edit needed. A
 manual convenience script (`scripts/dev-server.ts`), not part of the shipped product.
 
 ```ts

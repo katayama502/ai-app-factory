@@ -70,8 +70,8 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
   - DELETE is a real SQL `DELETE`, gated by spec-compiler's `FOR DELETE` RLS policy — NOT the
     soft-delete (`deletedAt`) pattern the schema's column suggests. The `deletedAt` column exists
     on every table but isn't wired into any query yet; don't assume soft-delete works.
-- [x] `apps/runtime`: the browser-facing surface — both a REST API (`/apps/:appId/api/:entity`)
-      and a server-rendered HTML MVP of the Spec renderer (`form`/`list` page types only —
+- [x] `apps/runtime`: the browser-facing surface — both a REST API (`/api/:entity`, host-resolved —
+      see origin isolation below) and a server-rendered HTML MVP of the Spec renderer (`form`/`list` page types only —
       `detail`/`dashboard`/`import` render a "not implemented" placeholder rather than silently
       doing nothing). Everything goes through `company-sdk`; this process holds no DB
       credentials. Auth is **HTTP Basic against an in-memory `DevUserDirectory`** — an explicit,
@@ -103,19 +103,46 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
        Spec's `id` to something unique-per-run before compiling, rather than tearing down
        anyone else's environment.
   - `scripts/dev-server.ts` (`pnpm dev:sample`) is a manual convenience script — NOT part of the
-    shipped product, it's the human stand-in for `deploy-engine` (below). Boots the
-    sales-daily-report template against a persistent local `aiaf_dev` database with three fixed
-    dev users, so a person can actually click around at `http://127.0.0.1:4200/apps/sales-daily-report/pages/0`.
+    shipped product, it's the human stand-in for `deploy-engine` (below). Boots BOTH the
+    sales-daily-report and expense-request templates against a persistent local `aiaf_dev`
+    database with three fixed dev users, each app served from its own `*.apps.localhost`
+    hostname, so a person can actually click around at
+    `http://sales-daily-report.apps.localhost:4200/pages/0` and
+    `http://expense-request.apps.localhost:4200/pages/0`.
   - Not implemented in the renderer: `reference`-field `<select>` population is coded
-    (`resolveReferenceOptions`) but not exercised by the browser-driven check above, since the
-    demoed template (sales-daily-report) has no reference fields — meeting-room does, and would
-    be the next template to manually verify. File uploads, edit-in-place from the list view, and
-    the `detail`/`dashboard`/`import` page types are explicitly unbuilt, not silently missing.
-- [ ] `deploy-engine`: register a Spec, per-app subdomain routing (ADR-012), health check —
-      `scripts/dev-server.ts` is a manual stand-in, not this
-- [ ] Origin isolation (`__Host-` cookies, per-app CSP, COOP) + security test S-15 — apps/runtime
-      currently serves everything from one origin (`127.0.0.1:4200`), which is explicitly the
-      thing ADR-012 says must not ship this way
+    (`resolveReferenceOptions`) but neither manually verified nor covered by an automated test —
+    the two templates demoed above (sales-daily-report, expense-request) have no reference
+    fields; meeting-room does (`Reservation.room`) and would be the one to check it against. File
+    uploads, edit-in-place from the list view, and the `detail`/`dashboard`/`import` page types
+    are explicitly unbuilt, not silently missing (a `未対応` note renders in their place — verified
+    live on expense-request's file field).
+- [x] Per-app origin routing + isolation headers (ADR-012, S-15 — 04_IMPLEMENTATION E1-6/E1-9
+      folded into `apps/runtime` rather than a separate Traefik-fronted `deploy-engine` process,
+      since there's nothing yet to containerize per app): `RuntimeAppRegistry` maps hostname →
+      app, resolved from `request.hostname` on every request — URL paths no longer carry an
+      `appId` at all (`/pages/:index`, `/api/:entity`, host determines the app). An unregistered
+      host is refused with 404 *before* auth is even attempted, so unknown hosts never see a
+      credential prompt for an app that doesn't exist. Every response carries
+      `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`,
+      `Cross-Origin-Resource-Policy: same-origin`, and a CSP (`frame-ancestors 'none'`,
+      `default-src 'self'`). `/healthz` is public (no auth) and reports the resolved app id —
+      04_IMPLEMENTATION E1-6's health-check requirement, in the simplest form that means anything
+      pre-deploy-engine. 20 unit tests (registry + header assertions) + 12 integration tests,
+      including two DIFFERENT apps served by the SAME runtime process, distinguished only by
+      hostname, verified over real HTTP against real Postgres.
+  - Verified in a real browser (not just the automated suite): opened both apps'
+    `*.apps.localhost` origins side by side via `pnpm dev:sample`, confirmed `location.origin`
+    differs, and confirmed a same-page `fetch()` from one app's origin to the other's is REJECTED
+    by the browser's own same-origin policy ("Failed to fetch") — the actual browser-enforced
+    property ADR-012 exists for, not just a server-side header being present.
+  - `*.apps.localhost` resolves to loopback automatically on macOS/Chrome (RFC 6761) — no
+    `/etc/hosts` edit needed for local dev. Real deployments still need real DNS + a wildcard
+    cert (`docs/design/02_SECURITY...md §7.4`), which is Setup Wizard's job (M6), not built.
+  - What's still missing from ADR-012's full picture: real TLS (dev is plain HTTP — there are no
+    cookies yet to make `Secure`/`__Host-` meaningful; that lands with the BFF pattern in M4),
+    and `deploy-engine` itself — nothing here provisions DNS records, certs, or Traefik routes;
+    `RuntimeAppRegistry` is populated by hand (or by `scripts/dev-server.ts`), not by a
+    publish flow.
 - [ ] Wire the three integration suites (spec-compiler, sdk-gateway, runtime) into CI (needs a
       Postgres service container in `ci.yml`, plus deciding whether they stay Postgres-only or
       also run against `docker compose` for parity with the deploy target)

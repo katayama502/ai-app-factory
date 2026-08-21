@@ -1,22 +1,26 @@
 /**
  * Manual local-dev convenience script — NOT part of the shipped product (there is no
- * `deploy-engine` yet; this is the human substitute for it). Boots the sales-daily-report
- * template against a persistent local Postgres dev database, then starts sdk-gateway
- * and apps/runtime so a person (or a browser-automation check) can actually click
- * around. Run with `pnpm dev:sample`.
+ * `deploy-engine` yet; this is the human substitute for it). Boots TWO templates —
+ * sales-daily-report and expense-request — against a persistent local Postgres dev
+ * database, each served from its OWN hostname by the same apps/runtime process
+ * (ADR-012: per-app origin, not per-app path — see appRegistry.ts). Run with
+ * `pnpm dev:sample`.
+ *
+ * `*.apps.localhost` resolves to loopback automatically on most systems/browsers
+ * (RFC 6761) — no `/etc/hosts` edit needed.
  *
  * Requires the same local Postgres superuser as the integration test suites
  * (127.0.0.1:5432, trust-authenticated — see README's "Try it today"). Idempotent:
- * safe to re-run, it skips schema creation if the app schema already exists.
+ * safe to re-run, it skips schema creation for any app whose schema already exists.
  */
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAppSpecYaml } from "@aiappfactory/app-spec";
+import { parseAppSpecYaml, type AppSpec } from "@aiappfactory/app-spec";
 import { quoteIdent } from "@aiappfactory/expr";
 import { AppRegistry, buildServer as buildGatewayServer } from "@aiappfactory/sdk-gateway";
 import { applyMigration, applyPlatformBootstrap, compileAppSpec, roleNameFor, schemaNameFor } from "@aiappfactory/spec-compiler";
-import { DevUserDirectory, buildRuntimeServer } from "@aiappfactory/runtime";
+import { DevUserDirectory, RuntimeAppRegistry, buildRuntimeServer } from "@aiappfactory/runtime";
 import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +38,16 @@ const ALICE = "00000000-0000-0000-0000-00000000a11c";
 const BOB = "00000000-0000-0000-0000-00000000b0b0";
 const CAROL = "00000000-0000-0000-0000-0000000ca201";
 
+interface TemplateApp {
+  templateDir: string;
+  hostname: string;
+}
+
+const APPS: TemplateApp[] = [
+  { templateDir: "sales-daily-report", hostname: "sales-daily-report.apps.localhost" },
+  { templateDir: "expense-request", hostname: "expense-request.apps.localhost" },
+];
+
 async function ensureDatabase(): Promise<void> {
   const admin = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres" });
   const { rows } = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [DEV_DB]);
@@ -42,6 +56,27 @@ async function ensureDatabase(): Promise<void> {
     console.log(`created database ${DEV_DB}`);
   }
   await admin.end();
+}
+
+function loadTemplate(templateDir: string): AppSpec {
+  const path = join(__dirname, "..", "templates", templateDir, "app.yaml");
+  const parsed = parseAppSpecYaml(readFileSync(path, "utf-8"));
+  if (!parsed.ok) throw new Error(`template "${templateDir}" invalid: ${JSON.stringify(parsed.issues)}`);
+  return parsed.spec;
+}
+
+async function ensureSchema(adminPool: pg.Pool, spec: AppSpec): Promise<{ schemaName: string; roleName: string }> {
+  const schemaName = schemaNameFor(spec.metadata.id);
+  const roleName = roleNameFor(spec.metadata.id);
+  const { rows } = await adminPool.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]);
+  if (rows.length === 0) {
+    const migration = compileAppSpec(spec, { rolePassword: APP_ROLE_PASSWORD });
+    await applyMigration(adminPool, migration);
+    console.log(`provisioned schema ${schemaName} / role ${roleName}`);
+  } else {
+    console.log(`schema ${schemaName} already exists, skipping DDL`);
+  }
+  return { schemaName, roleName };
 }
 
 async function main(): Promise<void> {
@@ -55,41 +90,39 @@ async function main(): Promise<void> {
     [ALICE, DEPT_SALES, BOB, CAROL]
   );
 
-  const templatePath = join(__dirname, "..", "templates", "sales-daily-report", "app.yaml");
-  const parsed = parseAppSpecYaml(readFileSync(templatePath, "utf-8"));
-  if (!parsed.ok) throw new Error(`template invalid: ${JSON.stringify(parsed.issues)}`);
-  const appId = parsed.spec.metadata.id;
-  const schemaName = schemaNameFor(appId);
-  const roleName = roleNameFor(appId);
+  const gatewayRegistry = new AppRegistry();
+  const runtimeRegistry = new RuntimeAppRegistry();
 
-  const { rows: existing } = await adminPool.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]);
-  if (existing.length === 0) {
-    const migration = compileAppSpec(parsed.spec, { rolePassword: APP_ROLE_PASSWORD });
-    await applyMigration(adminPool, migration);
-    console.log(`provisioned schema ${schemaName} / role ${roleName}`);
-  } else {
-    console.log(`schema ${schemaName} already exists, skipping DDL`);
+  for (const { templateDir, hostname } of APPS) {
+    const spec = loadTemplate(templateDir);
+    const { schemaName, roleName } = await ensureSchema(adminPool, spec);
+    const pool = new pg.Pool({ host: PGHOST, port: PGPORT, user: roleName, password: APP_ROLE_PASSWORD, database: DEV_DB });
+    gatewayRegistry.register(spec.metadata.id, { spec, pool, schemaName });
+    runtimeRegistry.register(hostname, { appId: spec.metadata.id, spec, gatewayUrl: "http://127.0.0.1:4100" });
   }
 
-  const appRolePool = new pg.Pool({ host: PGHOST, port: PGPORT, user: roleName, password: APP_ROLE_PASSWORD, database: DEV_DB });
-  const registry = new AppRegistry();
-  registry.register(appId, { spec: parsed.spec, pool: appRolePool, schemaName });
-
-  const gateway = buildGatewayServer(registry);
+  const gateway = buildGatewayServer(gatewayRegistry);
   await gateway.listen({ port: 4100, host: "127.0.0.1" });
 
   const users = new DevUserDirectory();
-  users.add("alice", { password: "alice-dev", ctx: { userId: ALICE, department: DEPT_SALES, roles: ["sales_member"] } });
-  users.add("bob", { password: "bob-dev", ctx: { userId: BOB, department: DEPT_SALES, roles: ["sales_member"] } });
-  users.add("carol", { password: "carol-dev", ctx: { userId: CAROL, department: DEPT_SALES, roles: ["sales_manager"] } });
+  // Realistic overlap: the same person can hold different roles in different apps —
+  // alice/bob are ordinary staff, carol is a manager in both contexts.
+  users.add("alice", { password: "alice-dev", ctx: { userId: ALICE, department: DEPT_SALES, roles: ["sales_member", "employee"] } });
+  users.add("bob", { password: "bob-dev", ctx: { userId: BOB, department: DEPT_SALES, roles: ["sales_member", "employee"] } });
+  users.add("carol", {
+    password: "carol-dev",
+    ctx: { userId: CAROL, department: DEPT_SALES, roles: ["sales_manager", "finance_approver"] },
+  });
 
-  const runtime = buildRuntimeServer({ spec: parsed.spec, gatewayUrl: "http://127.0.0.1:4100", users });
-  await runtime.listen({ port: 4200, host: "127.0.0.1" });
+  const runtime = buildRuntimeServer({ registry: runtimeRegistry, users });
+  await runtime.listen({ port: 4200, host: "::" });
 
   console.log("");
   console.log(`sdk-gateway : http://127.0.0.1:4100 (internal API only)`);
-  console.log(`runtime     : http://127.0.0.1:4200/apps/${appId}/pages/0`);
-  console.log(`dev users   : alice/alice-dev, bob/bob-dev (sales_member), carol/carol-dev (sales_manager)`);
+  for (const { hostname } of APPS) {
+    console.log(`runtime     : http://${hostname}:4200/pages/0`);
+  }
+  console.log(`dev users   : alice/alice-dev, bob/bob-dev, carol/carol-dev`);
   console.log("");
 }
 

@@ -1,6 +1,6 @@
 import type { AppSpec, EntitySpec, PageSpec } from "@aiappfactory/app-spec";
 import type { CompanySdk } from "@aiappfactory/company-sdk";
-import { escapeAttr, escapeHtml, pageShell } from "./html.js";
+import { escapeHtml, pageShell } from "./html.js";
 import { renderForm, type ReferenceOption } from "./render/form.js";
 import { renderList } from "./render/list.js";
 
@@ -15,7 +15,7 @@ function nav(spec: AppSpec, activeIndex: number): string {
     .map((page, i) => {
       const label = "title" in page ? page.title : page.entity;
       const active = i === activeIndex ? " (現在のページ)" : "";
-      return `<a href="/apps/${escapeAttr(spec.metadata.id)}/pages/${i}">${escapeHtml(label)}${active}</a>`;
+      return `<a href="/pages/${i}">${escapeHtml(label)}${active}</a>`;
     })
     .join(" ");
   return `<nav>${links}</nav>`;
@@ -44,7 +44,7 @@ export async function renderPage(spec: AppSpec, index: number, sdk: CompanySdk, 
   if (page.type === "form") {
     const entity = findEntity(spec, page.entity);
     const referenceOptions = await resolveReferenceOptions(sdk, spec, entity);
-    const body = `${nav(spec, index)}<h1>${escapeHtml(page.title)}</h1>${renderForm(entity, `/apps/${spec.metadata.id}/pages/${index}`, { referenceOptions })}`;
+    const body = `${nav(spec, index)}<h1>${escapeHtml(page.title)}</h1>${renderForm(entity, `/pages/${index}`, { referenceOptions })}`;
     return pageShell(page.title, body);
   }
 
@@ -63,7 +63,7 @@ export async function renderPage(spec: AppSpec, index: number, sdk: CompanySdk, 
       rows: filtered,
       searchFields,
       searchQuery: query.q ?? "",
-      searchAction: `/apps/${spec.metadata.id}/pages/${index}`,
+      searchAction: `/pages/${index}`,
     })}`;
     return pageShell(entity.label, body);
   }
@@ -97,5 +97,5 @@ export async function handleFormSubmit(spec: AppSpec, index: number, sdk: Compan
   await sdk.database.entity(page.entity).create(data);
 
   const listIndex = spec.ui.pages.findIndex((p) => p.type === "list" && p.entity === page.entity);
-  return `/apps/${spec.metadata.id}/pages/${listIndex >= 0 ? listIndex : index}`;
+  return `/pages/${listIndex >= 0 ? listIndex : index}`;
 }

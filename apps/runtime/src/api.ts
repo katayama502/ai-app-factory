@@ -10,11 +10,17 @@ function sendGatewayError(reply: import("fastify").FastifyReply, error: unknown)
   reply.code(500).send({ ok: false, error: "internal error" });
 }
 
-/** The browser/API-facing REST surface (04_IMPLEMENTATION E1-3), generated per entity from the Spec. Every handler goes through Company SDK — this process has no other way to reach the data. */
-export function registerApiRoutes(app: FastifyInstance, appId: string, sdkFor: (request: import("fastify").FastifyRequest) => CompanySdk | undefined): void {
-  app.get<{ Params: { entity: string } }>(`/apps/${appId}/api/:entity`, async (request, reply) => {
+/**
+ * The browser/API-facing REST surface (04_IMPLEMENTATION E1-3), generated per entity
+ * from the Spec. Routes are host-agnostic (`/api/:entity`, no appId in the path) —
+ * which app a request means is decided entirely by which origin it arrived on
+ * (ADR-012), resolved upstream into `sdkFor`. Every handler goes through Company SDK;
+ * this process has no other way to reach the data.
+ */
+export function registerApiRoutes(app: FastifyInstance, sdkFor: (request: import("fastify").FastifyRequest) => CompanySdk | undefined): void {
+  app.get<{ Params: { entity: string } }>(`/api/:entity`, async (request, reply) => {
     const sdk = sdkFor(request);
-    if (!sdk) return; // 401 already sent by the auth hook
+    if (!sdk) return; // 401/404 already sent upstream
     try {
       const rows = await sdk.database.entity(request.params.entity).list();
       reply.send({ ok: true, rows });
@@ -23,7 +29,7 @@ export function registerApiRoutes(app: FastifyInstance, appId: string, sdkFor: (
     }
   });
 
-  app.post<{ Params: { entity: string }; Body: Record<string, unknown> }>(`/apps/${appId}/api/:entity`, async (request, reply) => {
+  app.post<{ Params: { entity: string }; Body: Record<string, unknown> }>(`/api/:entity`, async (request, reply) => {
     const sdk = sdkFor(request);
     if (!sdk) return;
     try {
@@ -35,7 +41,7 @@ export function registerApiRoutes(app: FastifyInstance, appId: string, sdkFor: (
   });
 
   app.put<{ Params: { entity: string; id: string }; Body: Record<string, unknown> }>(
-    `/apps/${appId}/api/:entity/:id`,
+    `/api/:entity/:id`,
     async (request, reply) => {
       const sdk = sdkFor(request);
       if (!sdk) return;
@@ -48,7 +54,7 @@ export function registerApiRoutes(app: FastifyInstance, appId: string, sdkFor: (
     }
   );
 
-  app.delete<{ Params: { entity: string; id: string } }>(`/apps/${appId}/api/:entity/:id`, async (request, reply) => {
+  app.delete<{ Params: { entity: string; id: string } }>(`/api/:entity/:id`, async (request, reply) => {
     const sdk = sdkFor(request);
     if (!sdk) return;
     try {

@@ -42,12 +42,15 @@ postgresql@14` を想定）。それぞれ使い捨てのデータベースと�
 
 ```bash
 pnpm dev:sample
-# → http://127.0.0.1:4200/apps/sales-daily-report/pages/0
-# ログイン: alice/alice-dev, bob/bob-dev（sales_member）, carol/carol-dev（sales_manager）
+# → http://sales-daily-report.apps.localhost:4200/pages/0
+# → http://expense-request.apps.localhost:4200/pages/0
+# ログイン: alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
-これはローカルの永続DB（`aiaf_dev`）に営業日報テンプレートを展開する手動確認用スクリプト
-（`scripts/dev-server.ts`）で、製品本体には含まれません。
+2つの異なるテンプレートをローカルの永続DB（`aiaf_dev`）に展開し、それぞれ別の `*.apps.localhost`
+オリジンから同一のRuntimeプロセスが配信します（`*.localhost` は Chrome 等で自動的にループバックへ
+解決されるため `/etc/hosts` の編集は不要です）。手動確認用スクリプト（`scripts/dev-server.ts`）で、
+製品本体には含まれません。
 
 `templates/` に3つのサンプル Spec（営業日報・経費申請・会議室予約）があります。
 
