@@ -1,0 +1,74 @@
+apiVersion: factory.dev/v1
+kind: App
+metadata:
+  id: sales-daily-report
+  name: 営業日報
+  owner: sales-dept
+  tier: T1
+
+data:
+  entities:
+    - name: DailyReport
+      label: 日報
+      classification: INTERNAL
+      retention: P3Y
+      fields:
+        - { name: reportDate, type: date, label: 日付, required: true, default: today }
+        - { name: customerName, type: string, label: 顧客名, maxLength: 200, index: true }
+        - { name: amount, type: decimal, label: 金額, min: 0 }
+        - { name: body, type: richtext, label: 内容, maxLength: 5000 }
+        - { name: author, type: actor, label: 作成者, system: true }
+      computed:
+        - name: isLargeDeal
+          expr: "amount > 1000000"
+
+ui:
+  pages:
+    - { type: form, entity: DailyReport, title: 日報を書く }
+    - {
+        type: list,
+        entity: DailyReport,
+        columns: [reportDate, customerName, amount],
+        search: [customerName],
+        sort: "-reportDate",
+      }
+    - {
+        type: import,
+        entity: DailyReport,
+        title: Excelから取り込む,
+        formats: [csv, xlsx],
+        maxRows: 50000,
+        dryRun: true,
+      }
+    - type: dashboard
+      title: 営業ダッシュボード
+      widgets:
+        - { type: bar, entity: DailyReport, aggregate: count, groupBy: "month(reportDate)" }
+        - { type: stat, entity: DailyReport, aggregate: sum, field: amount, period: thisMonth }
+
+access:
+  roles:
+    - { role: sales_member, grants: [create, "read:own", "update:own"] }
+    - { role: sales_manager, grants: [create, "read:dept", "update:dept", export] }
+    - { role: exec, grants: [read] }
+  rowLevel:
+    own: "record.author == ctx.user.id"
+    dept: "record.author.department == ctx.user.department"
+
+automations:
+  - id: notifyLargeDeal
+    trigger: { on: create, entity: DailyReport }
+    when: "record.isLargeDeal"
+    actions:
+      - { type: notify, channel: email, to: "role:sales_manager", template: large-deal }
+
+ai:
+  features:
+    - id: summarize
+      type: summarize
+      entity: DailyReport
+      field: body
+      policy: { allowExternal: false }
+
+network:
+  egress: []

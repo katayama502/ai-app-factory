@@ -1,0 +1,26 @@
+AI App Factory Community Edition
+Copyright 2026 AI App Factory Contributors
+
+This product includes software developed as part of the AI App Factory project
+(https://github.com/<org>/ai-app-factory).
+
+This distribution bundles or depends on third-party open-source software. A full,
+machine-generated attribution list (from `license-checker`) is published with every
+release as `THIRD-PARTY-NOTICES.md`. Notably:
+
+  - Keycloak (Apache-2.0)      — Identity Provider
+  - Gitea (MIT)                — Spec version history (from M6; bare-repo v0.1, ADR-009)
+  - PostgreSQL (PostgreSQL License) + pgvector (PostgreSQL License)
+  - Traefik (MIT)              — Reverse proxy / TLS termination
+  - Zot (Apache-2.0)           — OCI registry
+  - Valkey (BSD-3-Clause)      — Queue / cache
+  - Ollama (MIT)                — Local LLM runtime
+  - gitleaks (MIT)              — Secret scanning
+  - Opengrep (LGPL-2.1)         — SAST, invoked as a separate process, not linked
+  - Trivy (Apache-2.0)          — Dependency / container / IaC scanning
+  - OSV.dev (code: Apache-2.0, data: CC-BY-4.0) — Vulnerability database
+  - OPA (Apache-2.0)            — Policy engine
+
+See 03_REPOSITORY_リポジトリ構成とOSS運営.md §2.3 and §3.4 for the license-compatibility
+rationale, and the CI-enforced denylist (AGPL / SSPL / Sustainable Use License / BSL) that
+keeps incompatible dependencies out of the bundled distribution.

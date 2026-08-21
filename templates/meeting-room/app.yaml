@@ -1,0 +1,52 @@
+apiVersion: factory.dev/v1
+kind: App
+metadata:
+  id: meeting-room
+  name: 会議室予約
+  owner: general-affairs
+  tier: T1
+
+data:
+  entities:
+    - name: Room
+      label: 会議室
+      classification: INTERNAL
+      fields:
+        - { name: roomName, type: string, label: 会議室名, required: true, maxLength: 100, index: true }
+        - { name: capacity, type: number, label: 定員, min: 1 }
+        - { name: location, type: string, label: 場所, maxLength: 200 }
+
+    - name: Reservation
+      label: 予約
+      classification: INTERNAL
+      fields:
+        - { name: room, type: reference, label: 会議室, required: true, references: Room }
+        - { name: startAt, type: datetime, label: 開始, required: true }
+        - { name: endAt, type: datetime, label: 終了, required: true }
+        - { name: purpose, type: string, label: 用途, maxLength: 200 }
+        - { name: reservedBy, type: actor, label: 予約者, system: true }
+
+ui:
+  pages:
+    - { type: form, entity: Reservation, title: 会議室を予約する }
+    - {
+        type: list,
+        entity: Reservation,
+        columns: [room, startAt, endAt, purpose],
+        search: [purpose],
+        sort: "-startAt",
+      }
+    - { type: list, entity: Room, columns: [roomName, capacity, location], search: [roomName] }
+
+access:
+  roles:
+    - { role: employee, grants: [create, read, "update:own", "delete:own"] }
+    - { role: facility_admin, grants: [create, read, update, delete, export] }
+
+automations: []
+
+ai:
+  features: []
+
+network:
+  egress: []

@@ -1,0 +1,55 @@
+apiVersion: factory.dev/v1
+kind: App
+metadata:
+  id: expense-request
+  name: 経費申請
+  owner: finance-dept
+  tier: T1
+
+data:
+  entities:
+    - name: ExpenseRequest
+      label: 経費申請
+      classification: CONFIDENTIAL
+      retention: P7Y
+      fields:
+        - { name: requestDate, type: date, label: 申請日, required: true, default: today }
+        - { name: category, type: select, label: 費目, required: true, options: [交通費, 交際費, 消耗品, その他] }
+        - { name: amount, type: decimal, label: 金額, required: true, min: 0 }
+        - { name: description, type: text, label: 内容, maxLength: 1000 }
+        - { name: receipt, type: file, label: 領収書 }
+        - { name: status, type: select, label: 状態, required: true, options: [draft, submitted, approved, rejected], default: draft }
+        - { name: requester, type: actor, label: 申請者, system: true }
+
+ui:
+  pages:
+    - { type: form, entity: ExpenseRequest, title: 経費を申請する }
+    - {
+        type: list,
+        entity: ExpenseRequest,
+        columns: [requestDate, category, amount, status],
+        search: [category],
+        sort: "-requestDate",
+      }
+    - { type: detail, entity: ExpenseRequest, title: 申請の詳細 }
+
+access:
+  roles:
+    - { role: employee, grants: [create, "read:own", "update:own"] }
+    - { role: finance_approver, grants: ["read:dept", "update:dept", export] }
+  rowLevel:
+    own: "record.requester == ctx.user.id"
+    dept: "record.requester.department == ctx.user.department"
+
+automations:
+  - id: notifySubmitted
+    trigger: { on: update, entity: ExpenseRequest }
+    when: 'record.status == "submitted"'
+    actions:
+      - { type: notify, channel: email, to: "role:finance_approver", template: expense-submitted }
+
+ai:
+  features: []
+
+network:
+  egress: []
