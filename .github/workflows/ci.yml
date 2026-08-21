@@ -30,3 +30,41 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Mirrors this repo's documented local dev setup (trust-authenticated
+          # Postgres on 127.0.0.1) rather than plumbing a password through every
+          # integration suite's pg.Pool config — see README's "Try it today".
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PG_TEST_SUPERUSER: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - run: pnpm --filter @aiappfactory/spec-compiler test:integration
+      - run: pnpm --filter @aiappfactory/sdk-gateway test:integration
+      - run: pnpm --filter @aiappfactory/runtime test:integration

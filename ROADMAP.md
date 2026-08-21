@@ -23,7 +23,7 @@ protection + initial admin creation.
 - [ ] Setup token protection + initial admin creation (T-08) — **not started**; this is the one
       M0 item that blocks a public Alpha and must not slip to M6
 
-## M1 — Walking Skeleton (in progress)
+## M1 — Walking Skeleton (complete)
 
 Goal: a hand-written Spec, with no AI involved, becomes a running app reachable in a browser.
 
@@ -143,9 +143,17 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
     and `deploy-engine` itself — nothing here provisions DNS records, certs, or Traefik routes;
     `RuntimeAppRegistry` is populated by hand (or by `scripts/dev-server.ts`), not by a
     publish flow.
-- [ ] Wire the three integration suites (spec-compiler, sdk-gateway, runtime) into CI (needs a
-      Postgres service container in `ci.yml`, plus deciding whether they stay Postgres-only or
-      also run against `docker compose` for parity with the deploy target)
+- [x] Wire the three integration suites (spec-compiler, sdk-gateway, runtime) into CI: a second
+      `.github/workflows/ci.yml` job (`integration`) runs a `postgres:17` service container
+      (`POSTGRES_HOST_AUTH_METHOD: trust`, mirroring the documented local dev setup) and runs all
+      three `test:integration` scripts against it via `PG_TEST_SUPERUSER=postgres`. Verified
+      locally before trusting it: created a throwaway local `postgres` superuser role (GitHub
+      Actions' service default) and re-ran all three suites against it with the same env var the
+      workflow sets, rather than assuming the YAML was correct. Not yet run against `docker
+      compose` for parity with the actual deploy target — only a bare `postgres:17` image so far.
+
+**M1 is functionally complete.** Every checkbox above is done; nothing on this milestone's own
+Definition of Done is outstanding.
 
 ## Later milestones (unstarted)
 
