@@ -70,16 +70,19 @@ beforeAll(async () => {
   const source = readFileSync(join(templatesDir, "sales-daily-report", "app.yaml"), "utf-8");
   const parsed = parseAppSpecYaml(source);
   if (!parsed.ok) throw new Error(`template failed to validate: ${JSON.stringify(parsed.issues)}`);
-  appId = parsed.spec.metadata.id;
+  // Unique per run — roles are CLUSTER-wide in Postgres, not per-database, so reusing
+  // the template's literal id would collide with e.g. `pnpm dev:sample`'s persistent role.
+  const spec = { ...parsed.spec, metadata: { ...parsed.spec.metadata, id: `sales-daily-report-test-${Date.now()}` } };
+  appId = spec.metadata.id;
 
-  const migration = compileAppSpec(parsed.spec, { rolePassword: APP_ROLE_PASSWORD });
+  const migration = compileAppSpec(spec, { rolePassword: APP_ROLE_PASSWORD });
   roleName = migration.roleName;
   await applyMigration(adminPool, migration);
 
   appRolePool = new pg.Pool({ host: PGHOST, port: PGPORT, user: roleName, password: APP_ROLE_PASSWORD, database: TEST_DB });
 
   const registry = new AppRegistry();
-  registry.register(appId, { spec: parsed.spec, pool: appRolePool, schemaName: migration.schemaName });
+  registry.register(appId, { spec, pool: appRolePool, schemaName: migration.schemaName });
 
   server = buildServer(registry);
   await server.listen({ port: 0, host: "127.0.0.1" });

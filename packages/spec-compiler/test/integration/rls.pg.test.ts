@@ -67,8 +67,12 @@ beforeAll(async () => {
   const source = readFileSync(join(templatesDir, "sales-daily-report", "app.yaml"), "utf-8");
   const parsed = parseAppSpecYaml(source);
   if (!parsed.ok) throw new Error(`template failed to validate: ${JSON.stringify(parsed.issues)}`);
+  // A unique id per run — schema/role names derive from it (ADR-007), and roles are
+  // CLUSTER-wide in Postgres, not per-database. Reusing the template's literal id
+  // would collide with e.g. `pnpm dev:sample`'s persistent dev role of the same name.
+  const spec = { ...parsed.spec, metadata: { ...parsed.spec.metadata, id: `sales-daily-report-test-${Date.now()}` } };
 
-  const migration = compileAppSpec(parsed.spec, { rolePassword: APP_ROLE_PASSWORD });
+  const migration = compileAppSpec(spec, { rolePassword: APP_ROLE_PASSWORD });
   schemaName = migration.schemaName;
   roleName = migration.roleName;
   await applyMigration(adminPool, migration);

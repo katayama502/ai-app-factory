@@ -2,6 +2,7 @@ import type { AppSpec, EntitySpec } from "@aiappfactory/app-spec";
 import { quoteIdent, quoteLiteral } from "@aiappfactory/expr";
 import type { Pool, PoolClient } from "pg";
 import { EntityNotFoundError, RecordNotFoundError, UnknownColumnError } from "./errors.js";
+import "./pgTypes.js"; // must run before any query touches a DATE column — see file for why
 import type { RegisteredApp } from "./registry.js";
 
 export interface ExecutionContext {

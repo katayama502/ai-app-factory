@@ -1,0 +1,43 @@
+{
+  "name": "@aiappfactory/runtime",
+  "version": "0.1.0",
+  "description": "The shared App Runtime that interprets a Spec (T1/T2) — the browser-facing REST API plus a server-rendered HTML MVP of the Spec renderer (04_IMPLEMENTATION E1-3/E1-4). All data access goes through @aiappfactory/company-sdk; this process holds no DB credentials of its own.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:integration": "vitest run test/integration",
+    "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
+  },
+  "dependencies": {
+    "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/company-sdk": "workspace:*",
+    "@fastify/formbody": "^8.0.0",
+    "fastify": "^5.1.0"
+  },
+  "devDependencies": {
+    "@aiappfactory/expr": "workspace:*",
+    "@aiappfactory/sdk-gateway": "workspace:*",
+    "@aiappfactory/spec-compiler": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "pg": "^8.13.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

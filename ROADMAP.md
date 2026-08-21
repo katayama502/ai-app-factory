@@ -70,14 +70,55 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
   - DELETE is a real SQL `DELETE`, gated by spec-compiler's `FOR DELETE` RLS policy — NOT the
     soft-delete (`deletedAt`) pattern the schema's column suggests. The `deletedAt` column exists
     on every table but isn't wired into any query yet; don't assume soft-delete works.
-- [ ] `runtime/data`: the actual browser-facing REST API generated per Spec (currently only
-      `sdk-gateway`'s internal API exists — nothing external-facing yet)
-- [ ] `runtime/renderer`: Spec → form / list / dashboard UI (React)
-- [ ] `deploy-engine`: register a Spec, per-app subdomain routing (ADR-012), health check
-- [ ] Origin isolation (`__Host-` cookies, per-app CSP, COOP) + security test S-15
-- [ ] Wire the spec-compiler and sdk-gateway integration suites into CI (needs a Postgres service
-      container in `ci.yml`, plus deciding whether they stay Postgres-only or also run against
-      `docker compose` for parity with the deploy target)
+- [x] `apps/runtime`: the browser-facing surface — both a REST API (`/apps/:appId/api/:entity`)
+      and a server-rendered HTML MVP of the Spec renderer (`form`/`list` page types only —
+      `detail`/`dashboard`/`import` render a "not implemented" placeholder rather than silently
+      doing nothing). Everything goes through `company-sdk`; this process holds no DB
+      credentials. Auth is **HTTP Basic against an in-memory `DevUserDirectory`** — an explicit,
+      documented stand-in for Keycloak (M4), not something to mistake for real auth. 16 unit
+      tests (pure rendering functions) + an 8-test integration suite that drives the *entire*
+      stack over real HTTP — browser-shaped requests → apps/runtime → company-sdk →
+      sdk-gateway → real Postgres RLS — including submitting an HTML form and having the
+      created record actually show up (RLS-scoped) in the list page. Run via
+      `pnpm --filter @aiappfactory/runtime test:integration`.
+  - **This closes M1's own Definition of Done**: a hand-written Spec (`sales-daily-report`),
+    with no AI involved, is a running app reachable in a browser — register a report, see it in
+    the list, search it, and have row-level access control hold for different logged-in users.
+    Verified twice: by the automated integration suite above, and by hand in a real browser via
+    `pnpm dev:sample` (see below) — alice sees only her own reports, bob (also `sales_member`)
+    sees none of alice's, carol (`sales_manager`, same department) sees both.
+  - **Two real bugs the manual browser check caught that the earlier all-HTTP integration test
+    had not exercised**, both fixed and now regression-tested:
+    1. Postgres `DATE` columns came back from `sdk-gateway` shifted by one day for any server
+       process not running in UTC (node-postgres's default DATE parser builds a JS `Date` in
+       the *server's local timezone*, which corrupts once JSON-serialized as UTC and read back
+       elsewhere). Fixed in `services/sdk-gateway/src/pgTypes.ts` by not parsing DATE to a `Date`
+       at all — it has no timezone to begin with, so the raw `"YYYY-MM-DD"` string is the
+       correct representation. Regression-guarded in the runtime integration suite.
+    2. All three integration suites (spec-compiler, sdk-gateway, runtime) reused the App Spec
+       template's literal `metadata.id` verbatim, so they all derived the *same* schema/role
+       names (ADR-007). Postgres roles are cluster-wide, not per-database — running any of them
+       while `pnpm dev:sample`'s persistent dev role of the same name existed caused a
+       `role already exists` failure. Fixed by having each integration suite mutate the parsed
+       Spec's `id` to something unique-per-run before compiling, rather than tearing down
+       anyone else's environment.
+  - `scripts/dev-server.ts` (`pnpm dev:sample`) is a manual convenience script — NOT part of the
+    shipped product, it's the human stand-in for `deploy-engine` (below). Boots the
+    sales-daily-report template against a persistent local `aiaf_dev` database with three fixed
+    dev users, so a person can actually click around at `http://127.0.0.1:4200/apps/sales-daily-report/pages/0`.
+  - Not implemented in the renderer: `reference`-field `<select>` population is coded
+    (`resolveReferenceOptions`) but not exercised by the browser-driven check above, since the
+    demoed template (sales-daily-report) has no reference fields — meeting-room does, and would
+    be the next template to manually verify. File uploads, edit-in-place from the list view, and
+    the `detail`/`dashboard`/`import` page types are explicitly unbuilt, not silently missing.
+- [ ] `deploy-engine`: register a Spec, per-app subdomain routing (ADR-012), health check —
+      `scripts/dev-server.ts` is a manual stand-in, not this
+- [ ] Origin isolation (`__Host-` cookies, per-app CSP, COOP) + security test S-15 — apps/runtime
+      currently serves everything from one origin (`127.0.0.1:4200`), which is explicitly the
+      thing ADR-012 says must not ship this way
+- [ ] Wire the three integration suites (spec-compiler, sdk-gateway, runtime) into CI (needs a
+      Postgres service container in `ci.yml`, plus deciding whether they stay Postgres-only or
+      also run against `docker compose` for parity with the deploy target)
 
 ## Later milestones (unstarted)
 

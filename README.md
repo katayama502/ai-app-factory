@@ -5,9 +5,11 @@ runs in your production environment.**
 
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
-> **Status: early design/scaffolding stage (pre-M1).** The core Spec schema and validator exist
-> and are tested. The App Runtime, AI Builder, and Security Gate described below are the plan,
-> not yet running code. See [ROADMAP.md](./ROADMAP.md) for what's real today.
+> **Status: M1 "Walking Skeleton" — its own Definition of Done is met.** A hand-written App Spec,
+> with no AI involved, compiles to an isolated Postgres schema and is reachable as a real app in
+> a browser: register a record via an HTML form, see it in a list, search it, and have row-level
+> access control hold for different logged-in users. The AI Builder and Security Gate described
+> below are still the plan, not running code. See [ROADMAP.md](./ROADMAP.md) for the exact state.
 
 ## The idea, in one sentence
 
@@ -50,7 +52,7 @@ original 89-point concept that were deliberately cut or changed for v1.0) is in
 
 ```
 apps/console/           Next.js — Builder UI / App Store / Admin / Setup Wizard (not started)
-apps/runtime/           Generic App Runtime that interprets a Spec (T1/T2) (not started)
+apps/runtime/           Browser-facing REST API + a server-rendered HTML MVP of the Spec renderer (React version not started)
 services/sdk-gateway/   The only process holding app DB credentials — executes CRUD, enforces RLS's principal
 services/...            Factory API, AI Gateway, AI Orchestrator, Security Gate, Deploy Engine (not started)
 packages/app-spec/      ★ The Spec schema, validator, and canonical hashing — the foundation everything else builds on
@@ -68,8 +70,9 @@ full target layout and OSS governance model.
 
 ## Try it today
 
-Five packages are real, tested code so far — enough to prove the whole backend path from a Spec
-file to an authorized, isolated database write, with no AI and no UI in the loop yet:
+Six packages are real, tested code so far — enough to register a record through an actual HTML
+form in a browser and see row-level access control hold for different logged-in users, with no
+AI in the loop yet:
 
 - **`packages/app-spec`** validates App Specs and enforces referential-integrity and
   security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
@@ -82,10 +85,14 @@ file to an authorized, isolated database write, with no AI and no UI in the loop
   can enforce it.
 - **`packages/company-sdk`** is the HTTP client to sdk-gateway; it's the only interface
   application code is meant to use to touch data (01_ARCHITECTURE §5.1).
+- **`apps/runtime`** is the browser-facing piece: a REST API plus a server-rendered HTML MVP of
+  the Spec renderer (form/list pages), authenticated with a placeholder dev-only Basic Auth
+  directory (real SSO is M4).
 
-Both spec-compiler's and sdk-gateway's integration suites apply real SQL to a real Postgres
-server and prove the row-level isolation actually holds end to end — including over an actual
-HTTP round-trip for sdk-gateway's — not just that the generated SQL parses.
+All three of spec-compiler's, sdk-gateway's, and apps/runtime's integration suites apply real
+requests to a real Postgres server and prove the row-level isolation actually holds end to
+end — up through an actual HTML form submission for apps/runtime's — not just that the generated
+SQL parses.
 
 ```bash
 pnpm install
@@ -93,12 +100,24 @@ pnpm build
 pnpm test                                                  # unit tests across all packages
 pnpm --filter @aiappfactory/spec-compiler test:integration # needs a local Postgres — see below
 pnpm --filter @aiappfactory/sdk-gateway test:integration
+pnpm --filter @aiappfactory/runtime test:integration
 ```
 
-Both integration suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this repo's
-dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). Each creates one
-throwaway database and one throwaway role and drops both in `afterAll`, regardless of pass/fail.
-Not yet wired into CI — see `ROADMAP.md`.
+All three integration suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this
+repo's dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). Each
+creates its own throwaway database and role and drops both in `afterAll`, regardless of
+pass/fail. Not yet wired into CI — see `ROADMAP.md`.
+
+To actually click around instead of just running tests:
+
+```bash
+pnpm dev:sample
+# → http://127.0.0.1:4200/apps/sales-daily-report/pages/0
+# login: alice/alice-dev, bob/bob-dev (sales_member), carol/carol-dev (sales_manager)
+```
+
+This boots the `sales-daily-report` template against a persistent local `aiaf_dev` database — a
+manual convenience script (`scripts/dev-server.ts`), not part of the shipped product.
 
 ```ts
 import { parseAppSpecYaml } from "@aiappfactory/app-spec";
