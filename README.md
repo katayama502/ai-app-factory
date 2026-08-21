@@ -5,11 +5,13 @@ runs in your production environment.**
 
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
-> **Status: M1 "Walking Skeleton" — its own Definition of Done is met.** A hand-written App Spec,
+> **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice.** A hand-written App Spec,
 > with no AI involved, compiles to an isolated Postgres schema and is reachable as a real app in
-> a browser: register a record via an HTML form, see it in a list, search it, and have row-level
-> access control hold for different logged-in users. The AI Builder and Security Gate described
-> below are still the plan, not running code. See [ROADMAP.md](./ROADMAP.md) for the exact state.
+> a browser — gated by an actual Keycloak login (Authorization Code + PKCE, BFF pattern), not a
+> dev placeholder: register a record via an HTML form, see it in a list, search it, and have
+> row-level access control hold for different logged-in users. The AI Builder and Security Gate
+> described below are still the plan, not running code. See [ROADMAP.md](./ROADMAP.md) for the
+> exact state.
 
 ## The idea, in one sentence
 
@@ -59,6 +61,8 @@ packages/app-spec/      ★ The Spec schema, validator, and canonical hashing �
 packages/expr/          Restricted expression parser + compiler (ADR-010 computed fields, ADR-011 rowLevel → RLS)
 packages/spec-compiler/ Spec → PostgreSQL DDL/RLS (ADR-007) — includes a real-Postgres integration test suite
 packages/company-sdk/   The only API app code may use to touch data — an HTTP client over sdk-gateway
+packages/auth-bff/      OIDC Authorization Code + PKCE, BFF pattern (ADR-006) — real Keycloak login, no tokens in the browser
+packages/keycloak-admin/ Realm/client/role/user provisioning over Keycloak's Admin REST API
 packages/...            risk-engine, scanners, audit, db, ui, i18n (not started)
 policies/               Default Rego policies (Gate 1) (not started)
 templates/              App Spec templates, ready to run — the on-ramp for non-code contributions
@@ -70,9 +74,9 @@ full target layout and OSS governance model.
 
 ## Try it today
 
-Six packages are real, tested code so far — enough to register a record through an actual HTML
-form in a browser and see row-level access control hold for different logged-in users, with no
-AI in the loop yet:
+Eight packages are real, tested code so far — enough to log in through an actual Keycloak login
+page, register a record through an HTML form, and see row-level access control hold for
+different logged-in users, with no AI in the loop yet:
 
 - **`packages/app-spec`** validates App Specs and enforces referential-integrity and
   security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
@@ -85,16 +89,20 @@ AI in the loop yet:
   can enforce it.
 - **`packages/company-sdk`** is the HTTP client to sdk-gateway; it's the only interface
   application code is meant to use to touch data (01_ARCHITECTURE §5.1).
+- **`packages/keycloak-admin`** provisions a Keycloak realm/client/roles/users over the Admin
+  REST API — just enough for ADR-006, not a general-purpose SDK.
+- **`packages/auth-bff`** is the Authorization Code + PKCE logic itself (ADR-006, BFF pattern) —
+  the browser only ever holds an httpOnly session cookie, never a token.
 - **`apps/runtime`** is the browser-facing piece: a REST API plus a server-rendered HTML MVP of
-  the Spec renderer (form/list pages), authenticated with a placeholder dev-only Basic Auth
-  directory (real SSO is M4). Multiple apps can be served by one Runtime process, each on its
-  own hostname (ADR-012) — resolved from the request's Host header, never a URL path segment —
-  with per-response origin-isolation headers (COOP/CORP/X-Frame-Options/CSP).
+  the Spec renderer (form/list pages), gated by a real Keycloak login via `auth-bff`. Multiple
+  apps can be served by one Runtime process, each on its own hostname (ADR-012) and its own OIDC
+  client (ADR-006) — resolved from the request's Host header, never a URL path segment — with
+  per-response origin-isolation headers (COOP/CORP/X-Frame-Options/CSP).
 
-All three of spec-compiler's, sdk-gateway's, and apps/runtime's integration suites apply real
-requests to a real Postgres server and prove the row-level isolation actually holds end to
-end — up through an actual HTML form submission for apps/runtime's — not just that the generated
-SQL parses.
+All five integration suites (spec-compiler, sdk-gateway, auth-bff, runtime) apply real requests
+to a real Postgres server and/or a real, freshly-provisioned Keycloak and prove the whole thing
+actually holds end to end — auth-bff's and runtime's drive the *actual* Keycloak-hosted login
+form, not a mock — not just that the generated SQL or the OIDC plumbing looks right on paper.
 
 ```bash
 pnpm install
@@ -102,13 +110,15 @@ pnpm build
 pnpm test                                                  # unit tests across all packages
 pnpm --filter @aiappfactory/spec-compiler test:integration # needs a local Postgres — see below
 pnpm --filter @aiappfactory/sdk-gateway test:integration
-pnpm --filter @aiappfactory/runtime test:integration
+pnpm --filter @aiappfactory/auth-bff test:integration      # needs Docker — spins up its own Keycloak
+pnpm --filter @aiappfactory/runtime test:integration       # needs both
 ```
 
-All three integration suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this
-repo's dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). Each
-creates its own throwaway database and role and drops both in `afterAll`, regardless of
-pass/fail. Not yet wired into CI — see `ROADMAP.md`.
+The Postgres-backed suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this
+repo's dev setup uses `brew install postgresql@14`, trust-authenticated on localhost); each
+creates its own throwaway database and role and drops both in `afterAll`. The Keycloak-backed
+suites need Docker and manage their own throwaway `quay.io/keycloak/keycloak` container the same
+way. All four are wired into CI (`.github/workflows/ci.yml`'s `integration` job).
 
 To actually click around instead of just running tests:
 
@@ -119,10 +129,13 @@ pnpm dev:sample
 # login: alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
-This boots two different templates against a persistent local `aiaf_dev` database, each served
-from its own `*.apps.localhost` origin by the same Runtime process — `*.localhost` resolves to
-loopback automatically in Chrome and most resolvers (RFC 6761), no `/etc/hosts` edit needed. A
-manual convenience script (`scripts/dev-server.ts`), not part of the shipped product.
+This boots two different templates against a persistent local `aiaf_dev` Postgres database and a
+persistent local `aiaf-dev-keycloak` Docker container, each app served from its own
+`*.apps.localhost` origin (and its own OIDC client) by the same Runtime process —
+`*.localhost` resolves to loopback automatically in Chrome and most resolvers (RFC 6761), no
+`/etc/hosts` edit needed. Logging in redirects to Keycloak's own hosted login page — this is
+real SSO, not a mock. A manual convenience script (`scripts/dev-server.ts`), not part of the
+shipped product.
 
 ```ts
 import { parseAppSpecYaml } from "@aiappfactory/app-spec";

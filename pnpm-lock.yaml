@@ -11,9 +11,15 @@ importers:
       '@aiappfactory/app-spec':
         specifier: workspace:*
         version: link:packages/app-spec
+      '@aiappfactory/auth-bff':
+        specifier: workspace:*
+        version: link:packages/auth-bff
       '@aiappfactory/expr':
         specifier: workspace:*
         version: link:packages/expr
+      '@aiappfactory/keycloak-admin':
+        specifier: workspace:*
+        version: link:packages/keycloak-admin
       '@aiappfactory/runtime':
         specifier: workspace:*
         version: link:apps/runtime
@@ -50,6 +56,9 @@ importers:
       '@aiappfactory/app-spec':
         specifier: workspace:*
         version: link:../../packages/app-spec
+      '@aiappfactory/auth-bff':
+        specifier: workspace:*
+        version: link:../../packages/auth-bff
       '@aiappfactory/company-sdk':
         specifier: workspace:*
         version: link:../../packages/company-sdk
@@ -63,6 +72,9 @@ importers:
       '@aiappfactory/expr':
         specifier: workspace:*
         version: link:../../packages/expr
+      '@aiappfactory/keycloak-admin':
+        specifier: workspace:*
+        version: link:../../packages/keycloak-admin
       '@aiappfactory/sdk-gateway':
         specifier: workspace:*
         version: link:../../services/sdk-gateway
@@ -110,6 +122,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/auth-bff:
+    dependencies:
+      openid-client:
+        specifier: ^6.8.0
+        version: 6.8.7
+    devDependencies:
+      '@aiappfactory/keycloak-admin':
+        specifier: workspace:*
+        version: link:../keycloak-admin
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.0
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1))
+      fastify:
+        specifier: ^5.1.0
+        version: 5.12.1
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
   packages/company-sdk:
     devDependencies:
       '@types/node':
@@ -126,6 +163,21 @@ importers:
         version: 2.1.9(@types/node@22.20.1)
 
   packages/expr:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.0
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1))
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/keycloak-admin:
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -1258,6 +1310,9 @@ packages:
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
 
+  jose@6.2.9:
+    resolution: {integrity: sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA==}
+
   js-yaml@4.3.1:
     resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
@@ -1336,9 +1391,15 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
+  oauth4webapi@3.8.7:
+    resolution: {integrity: sha512-4RxcKxXjuItDFZ20RRPf4YTw3kpeXJyCgJFxVzJ068A7PNJ18st2Dg90tlC1LkSDS0GecroagCLHYEIVUhCAkw==}
+
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
+
+  openid-client@6.8.7:
+    resolution: {integrity: sha512-gtKthNu7evSBvTdrrlHb4F3Fi9dcwlb5QaITlCs+9mfpvuOi0Q3qtBf5+iY4sEP8hy1qCoAdxBNPDcmZeVSDzQ==}
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -2690,6 +2751,8 @@ snapshots:
     optionalDependencies:
       '@pkgjs/parseargs': 0.11.0
 
+  jose@6.2.9: {}
+
   js-yaml@4.3.1:
     dependencies:
       argparse: 2.0.1
@@ -2765,7 +2828,14 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
+  oauth4webapi@3.8.7: {}
+
   on-exit-leak-free@2.1.2: {}
+
+  openid-client@6.8.7:
+    dependencies:
+      jose: 6.2.9
+      oauth4webapi: 3.8.7
 
   optionator@0.9.4:
     dependencies:

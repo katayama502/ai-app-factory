@@ -2,25 +2,38 @@
  * Manual local-dev convenience script — NOT part of the shipped product (there is no
  * `deploy-engine` yet; this is the human substitute for it). Boots TWO templates —
  * sales-daily-report and expense-request — against a persistent local Postgres dev
- * database, each served from its OWN hostname by the same apps/runtime process
- * (ADR-012: per-app origin, not per-app path — see appRegistry.ts). Run with
- * `pnpm dev:sample`.
+ * database AND a persistent local Keycloak dev container, each app served from its
+ * OWN hostname by the same apps/runtime process (ADR-012: per-app origin, not
+ * per-app path — see appRegistry.ts) and gated by a REAL Keycloak login (ADR-006).
+ * Run with `pnpm dev:sample`.
  *
  * `*.apps.localhost` resolves to loopback automatically on most systems/browsers
  * (RFC 6761) — no `/etc/hosts` edit needed.
  *
  * Requires the same local Postgres superuser as the integration test suites
- * (127.0.0.1:5432, trust-authenticated — see README's "Try it today"). Idempotent:
- * safe to re-run, it skips schema creation for any app whose schema already exists.
+ * (127.0.0.1:5432, trust-authenticated — see README's "Try it today"), and Docker
+ * (for the Keycloak container). Idempotent: safe to re-run — it reuses the Postgres
+ * schema/Keycloak realm if they already exist rather than re-provisioning.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAppSpecYaml, type AppSpec } from "@aiappfactory/app-spec";
+import { createOidcAuth, type OidcAuth } from "@aiappfactory/auth-bff";
 import { quoteIdent } from "@aiappfactory/expr";
+import {
+  KeycloakAdminClient,
+  addClaimsMappers,
+  allowUnmanagedAttributes,
+  createConfidentialClient,
+  createRealm,
+  createRealmRole,
+  createUser,
+} from "@aiappfactory/keycloak-admin";
+import { RuntimeAppRegistry, buildRuntimeServer } from "@aiappfactory/runtime";
 import { AppRegistry, buildServer as buildGatewayServer } from "@aiappfactory/sdk-gateway";
 import { applyMigration, applyPlatformBootstrap, compileAppSpec, roleNameFor, schemaNameFor } from "@aiappfactory/spec-compiler";
-import { DevUserDirectory, RuntimeAppRegistry, buildRuntimeServer } from "@aiappfactory/runtime";
 import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,22 +44,29 @@ const PGUSER = process.env.PG_TEST_SUPERUSER ?? process.env.USER ?? "postgres";
 const DEV_DB = "aiaf_dev";
 const APP_ROLE_PASSWORD = "dev-only-not-a-real-secret";
 
-// Fixed, deterministic dev identities — NOT randomUUID(), so re-running this script
-// keeps referring to the same "people".
+const KC_CONTAINER = "aiaf-dev-keycloak";
+const KC_PORT = 8180;
+const KC_BASE_URL = `http://localhost:${KC_PORT}`;
+const KC_ADMIN_PASSWORD = "admin";
+const REALM = "factory-dev";
+
+// Fixed department UUID — NOT randomUUID(), so re-running this script keeps
+// referring to the same "place". User UUIDs now come from Keycloak itself
+// (createUser returns its generated id) rather than being chosen up front.
 const DEPT_SALES = "00000000-0000-0000-0000-0000000000d1";
-const ALICE = "00000000-0000-0000-0000-00000000a11c";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
-const CAROL = "00000000-0000-0000-0000-0000000ca201";
 
 interface TemplateApp {
   templateDir: string;
   hostname: string;
+  clientId: string;
 }
 
 const APPS: TemplateApp[] = [
-  { templateDir: "sales-daily-report", hostname: "sales-daily-report.apps.localhost" },
-  { templateDir: "expense-request", hostname: "expense-request.apps.localhost" },
+  { templateDir: "sales-daily-report", hostname: "sales-daily-report.apps.localhost", clientId: "sales-daily-report" },
+  { templateDir: "expense-request", hostname: "expense-request.apps.localhost", clientId: "expense-request" },
 ];
+
+const CLIENT_SECRET = "dev-only-not-a-real-secret"; // same for every dev client — fine for local dev, never for a real deployment
 
 async function ensureDatabase(): Promise<void> {
   const admin = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres" });
@@ -79,46 +99,145 @@ async function ensureSchema(adminPool: pg.Pool, spec: AppSpec): Promise<{ schema
   return { schemaName, roleName };
 }
 
+function containerStatus(): "running" | "stopped" | "missing" {
+  try {
+    const out = execFileSync("docker", ["inspect", "-f", "{{.State.Running}}", KC_CONTAINER], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+    return out === "true" ? "running" : "stopped";
+  } catch {
+    return "missing";
+  }
+}
+
+async function ensureKeycloak(): Promise<void> {
+  const status = containerStatus();
+  if (status === "missing") {
+    execFileSync("docker", [
+      "run",
+      "-d",
+      "--name",
+      KC_CONTAINER,
+      "-p",
+      `${KC_PORT}:8080`,
+      "-e",
+      "KC_BOOTSTRAP_ADMIN_USERNAME=admin",
+      "-e",
+      `KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}`,
+      "quay.io/keycloak/keycloak:26.0",
+      "start-dev",
+    ]);
+    console.log(`started Keycloak container "${KC_CONTAINER}"`);
+  } else if (status === "stopped") {
+    execFileSync("docker", ["start", KC_CONTAINER]);
+    console.log(`restarted existing Keycloak container "${KC_CONTAINER}"`);
+  } else {
+    console.log(`Keycloak container "${KC_CONTAINER}" already running`);
+  }
+
+  for (let i = 0; i < 60; i++) {
+    try {
+      if ((await fetch(`${KC_BASE_URL}/realms/master`)).ok) return;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error("Keycloak did not become ready in time");
+}
+
+async function realmExists(admin: KeycloakAdminClient): Promise<boolean> {
+  try {
+    await admin.request("GET", `/admin/realms/${REALM}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main(): Promise<void> {
   await ensureDatabase();
   const adminPool = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: DEV_DB });
-
   await applyPlatformBootstrap(adminPool);
   await adminPool.query(`INSERT INTO public.departments (id) VALUES ($1) ON CONFLICT DO NOTHING`, [DEPT_SALES]);
-  await adminPool.query(
-    `INSERT INTO public.users (id, department_id) VALUES ($1, $2), ($3, $2), ($4, $2) ON CONFLICT DO NOTHING`,
-    [ALICE, DEPT_SALES, BOB, CAROL]
-  );
+
+  await ensureKeycloak();
+  const kcAdmin = await KeycloakAdminClient.authenticate({ baseUrl: KC_BASE_URL, adminUsername: "admin", adminPassword: KC_ADMIN_PASSWORD });
+
+  const alreadyProvisioned = await realmExists(kcAdmin);
+  if (!alreadyProvisioned) {
+    await createRealm(kcAdmin, REALM);
+    await allowUnmanagedAttributes(kcAdmin, REALM);
+    for (const role of ["sales_member", "sales_manager", "employee", "finance_approver"]) {
+      await createRealmRole(kcAdmin, REALM, role);
+    }
+    // Realistic overlap: the same person can hold different roles in different apps —
+    // alice/bob are ordinary staff, carol is a manager in both contexts.
+    await createUser(kcAdmin, REALM, {
+      username: "alice",
+      password: "alice-dev",
+      email: "alice@example.com",
+      firstName: "Alice",
+      lastName: "Sales",
+      department: DEPT_SALES,
+      roles: ["sales_member", "employee"],
+    });
+    await createUser(kcAdmin, REALM, {
+      username: "bob",
+      password: "bob-dev",
+      email: "bob@example.com",
+      firstName: "Bob",
+      lastName: "Sales",
+      department: DEPT_SALES,
+      roles: ["sales_member", "employee"],
+    });
+    await createUser(kcAdmin, REALM, {
+      username: "carol",
+      password: "carol-dev",
+      email: "carol@example.com",
+      firstName: "Carol",
+      lastName: "Manager",
+      department: DEPT_SALES,
+      roles: ["sales_manager", "finance_approver"],
+    });
+    console.log(`provisioned realm "${REALM}" (roles + alice/bob/carol)`);
+  } else {
+    console.log(`realm "${REALM}" already provisioned, skipping`);
+  }
 
   const gatewayRegistry = new AppRegistry();
   const runtimeRegistry = new RuntimeAppRegistry();
 
-  for (const { templateDir, hostname } of APPS) {
+  for (const { templateDir, hostname, clientId } of APPS) {
     const spec = loadTemplate(templateDir);
     const { schemaName, roleName } = await ensureSchema(adminPool, spec);
     const pool = new pg.Pool({ host: PGHOST, port: PGPORT, user: roleName, password: APP_ROLE_PASSWORD, database: DEV_DB });
     gatewayRegistry.register(spec.metadata.id, { spec, pool, schemaName });
-    runtimeRegistry.register(hostname, { appId: spec.metadata.id, spec, gatewayUrl: "http://127.0.0.1:4100" });
+
+    const redirectUri = `http://${hostname}:4200/auth/callback`;
+    if (!alreadyProvisioned) {
+      const clientUuid = await createConfidentialClient(kcAdmin, REALM, { clientId, secret: CLIENT_SECRET, redirectUris: [redirectUri] });
+      await addClaimsMappers(kcAdmin, REALM, clientUuid);
+    }
+    const oidcAuth: OidcAuth = await createOidcAuth({
+      issuerUrl: `${KC_BASE_URL}/realms/${REALM}`,
+      clientId,
+      clientSecret: CLIENT_SECRET,
+      redirectUri,
+    });
+
+    runtimeRegistry.register(hostname, { appId: spec.metadata.id, spec, gatewayUrl: "http://127.0.0.1:4100", oidcAuth });
   }
 
   const gateway = buildGatewayServer(gatewayRegistry);
   await gateway.listen({ port: 4100, host: "127.0.0.1" });
 
-  const users = new DevUserDirectory();
-  // Realistic overlap: the same person can hold different roles in different apps —
-  // alice/bob are ordinary staff, carol is a manager in both contexts.
-  users.add("alice", { password: "alice-dev", ctx: { userId: ALICE, department: DEPT_SALES, roles: ["sales_member", "employee"] } });
-  users.add("bob", { password: "bob-dev", ctx: { userId: BOB, department: DEPT_SALES, roles: ["sales_member", "employee"] } });
-  users.add("carol", {
-    password: "carol-dev",
-    ctx: { userId: CAROL, department: DEPT_SALES, roles: ["sales_manager", "finance_approver"] },
-  });
-
-  const runtime = buildRuntimeServer({ registry: runtimeRegistry, users });
+  const runtime = buildRuntimeServer({ registry: runtimeRegistry });
   await runtime.listen({ port: 4200, host: "::" });
 
   console.log("");
   console.log(`sdk-gateway : http://127.0.0.1:4100 (internal API only)`);
+  console.log(`keycloak    : ${KC_BASE_URL} (admin/${KC_ADMIN_PASSWORD})`);
   for (const { hostname } of APPS) {
     console.log(`runtime     : http://${hostname}:4200/pages/0`);
   }

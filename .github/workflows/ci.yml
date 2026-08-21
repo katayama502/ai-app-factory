@@ -67,4 +67,9 @@ jobs:
 
       - run: pnpm --filter @aiappfactory/spec-compiler test:integration
       - run: pnpm --filter @aiappfactory/sdk-gateway test:integration
+      # auth-bff's and runtime's integration suites manage their own throwaway
+      # Keycloak container via the Docker CLI directly (see their test files) rather
+      # than a `services:` entry here — GitHub-hosted ubuntu-latest runners have
+      # Docker available by default, no extra setup needed.
+      - run: pnpm --filter @aiappfactory/auth-bff test:integration
       - run: pnpm --filter @aiappfactory/runtime test:integration

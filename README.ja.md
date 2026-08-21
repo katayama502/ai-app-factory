@@ -4,9 +4,10 @@
 
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
-> **現在の状態: M1（Walking Skeleton）のDoDを達成。** AIを一切介さず手書きしたApp Specが、分離された
-> Postgresスキーマにコンパイルされ、実際にブラウザから使えるアプリとして動作します——HTMLフォームから
-> レコードを登録し、一覧で確認し、検索でき、ログインユーザーごとに行レベルのアクセス制御が効きます。
+> **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分も完了。** AIを一切介さず手書きした
+> App Specが、分離されたPostgresスキーマにコンパイルされ、実際のKeycloakログイン（Authorization Code +
+> PKCE、BFFパターン）で保護されたブラウザアプリとして動作します——開発用の仮認証ではありません。HTMLフォーム
+> からレコードを登録し、一覧で確認し、検索でき、ログインユーザーごとに行レベルのアクセス制御が効きます。
 > `pnpm dev:sample` で実際に起動して確認できます（下記）。AI Builder・Security Gate はまだ未着手です。
 > 「今、実際に動くもの」の詳細は [ROADMAP.md](./ROADMAP.md) を参照してください。
 
@@ -31,12 +32,14 @@ pnpm build
 pnpm test                                                   # 全パッケージのユニットテスト
 pnpm --filter @aiappfactory/spec-compiler test:integration  # ローカルPostgresが必要（下記）
 pnpm --filter @aiappfactory/sdk-gateway test:integration
-pnpm --filter @aiappfactory/runtime test:integration
+pnpm --filter @aiappfactory/auth-bff test:integration       # Dockerが必要（Keycloakを自動起動）
+pnpm --filter @aiappfactory/runtime test:integration        # 両方必要
 ```
 
-3つの統合テストはいずれも `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install
+Postgres系の統合テストは `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install
 postgresql@14` を想定）。それぞれ使い捨てのデータベースとロールを作成し、成功・失敗にかかわらず
-`afterAll` で必ず削除します。CIにはまだ組み込んでいません（`ROADMAP.md` 参照）。
+`afterAll` で必ず削除します。Keycloak系の統合テストはDockerが必要で、使い捨てのKeycloakコンテナを
+自前で起動・削除します。4つとも CI（`.github/workflows/ci.yml` の `integration` ジョブ）に組み込み済みです。
 
 実際にブラウザで触ってみるには：
 
@@ -47,10 +50,11 @@ pnpm dev:sample
 # ログイン: alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
-2つの異なるテンプレートをローカルの永続DB（`aiaf_dev`）に展開し、それぞれ別の `*.apps.localhost`
-オリジンから同一のRuntimeプロセスが配信します（`*.localhost` は Chrome 等で自動的にループバックへ
-解決されるため `/etc/hosts` の編集は不要です）。手動確認用スクリプト（`scripts/dev-server.ts`）で、
-製品本体には含まれません。
+2つの異なるテンプレートをローカルの永続Postgres DB（`aiaf_dev`）と永続Keycloakコンテナ
+（`aiaf-dev-keycloak`）に展開し、それぞれ別の `*.apps.localhost` オリジン（別々のOIDCクライアント）
+から同一のRuntimeプロセスが配信します（`*.localhost` は Chrome 等で自動的にループバックへ解決される
+ため `/etc/hosts` の編集は不要です）。ログインするとKeycloak本物のログイン画面にリダイレクトされます
+——モックではありません。手動確認用スクリプト（`scripts/dev-server.ts`）で、製品本体には含まれません。
 
 `templates/` に3つのサンプル Spec（営業日報・経費申請・会議室予約）があります。
 

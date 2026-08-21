@@ -28,7 +28,9 @@
   },
   "devDependencies": {
     "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/auth-bff": "workspace:*",
     "@aiappfactory/expr": "workspace:*",
+    "@aiappfactory/keycloak-admin": "workspace:*",
     "@aiappfactory/runtime": "workspace:*",
     "@aiappfactory/sdk-gateway": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",

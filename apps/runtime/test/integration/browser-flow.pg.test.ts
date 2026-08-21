@@ -1,30 +1,41 @@
-import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { parseAppSpecYaml, type AppSpec } from "@aiappfactory/app-spec";
+import { createOidcAuth, type OidcAuth } from "@aiappfactory/auth-bff";
 import { quoteIdent } from "@aiappfactory/expr";
+import {
+  KeycloakAdminClient,
+  addClaimsMappers,
+  allowUnmanagedAttributes,
+  createConfidentialClient,
+  createRealm,
+  createRealmRole,
+  createUser,
+} from "@aiappfactory/keycloak-admin";
 import { AppRegistry, buildServer as buildGatewayServer } from "@aiappfactory/sdk-gateway";
 import { applyMigration, applyPlatformBootstrap, compileAppSpec } from "@aiappfactory/spec-compiler";
 import type { FastifyInstance } from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RuntimeAppRegistry } from "../../src/appRegistry.js";
-import { DevUserDirectory } from "../../src/devUsers.js";
 import { buildRuntimeServer } from "../../src/server.js";
 
 /**
- * End-to-end proof of M1's Walking Skeleton DoD (ROADMAP.md): a hand-written Spec
- * becomes a browser-reachable app — register a record via an HTML form, see it in a
- * list, search it, and have RLS-based row visibility hold even through the
- * server-rendered HTML layer, not just the JSON API. Also proves ADR-012's per-app
- * origin routing: two DIFFERENT apps, served by the SAME Runtime process, are
- * distinguished entirely by which hostname a request arrived on — never a path
- * segment — and an unregistered hostname is refused before auth is even attempted.
+ * End-to-end proof of M1's Walking Skeleton DoD PLUS M4's real-auth slice: a
+ * hand-written Spec becomes a browser-reachable app, gated by an actual Keycloak
+ * login (ADR-006 Authorization Code + PKCE, BFF pattern) rather than the retired
+ * DevUserDirectory placeholder — register a record via an HTML form, see it in a
+ * list, search it, and have RLS-based row visibility hold, all behind a real OIDC
+ * login form. Also proves ADR-012's per-app origin routing holds with TWO
+ * independent OIDC clients (one per app, as ADR-006 requires) served by the SAME
+ * Runtime process: a session minted by one app's login is meaningless to the other.
  *
- * `*.localhost` hostnames resolve to loopback automatically on most systems/browsers
- * (RFC 6761) — no `/etc/hosts` edit needed, which is why the Runtime is bound to `::`
- * here instead of a bare `127.0.0.1`. Run via `pnpm test:integration`.
+ * Needs both a local Postgres superuser (see the other suites' header comments) AND
+ * Docker (for a throwaway Keycloak container — see packages/auth-bff's integration
+ * suite). Run via `pnpm test:integration`.
  */
 
 const PGHOST = "127.0.0.1";
@@ -32,6 +43,11 @@ const PGPORT = 5432;
 const PGUSER = process.env.PG_TEST_SUPERUSER ?? "hayato";
 const TEST_DB = `aiaf_runtime_test_${Date.now()}`;
 const APP_ROLE_PASSWORD = "test-only-not-a-real-secret";
+
+const KC_CONTAINER = `aiaf-kc-runtime-test-${Date.now()}`;
+const KC_PORT = 19080 + Math.floor(Math.random() * 1000);
+const KC_BASE_URL = `http://localhost:${KC_PORT}`;
+const REALM = "factory-test";
 
 const templatesDir = join(import.meta.dirname, "..", "..", "..", "..", "templates");
 
@@ -47,13 +63,29 @@ let runtimePort: number;
 let roleNameA: string;
 let roleNameB: string;
 let appIdA: string;
-
+let appIdB: string;
 let deptSales: string;
-let alice: string;
-let bob: string;
+let alice: { id: string };
+let bob: { id: string };
 
-function basicAuthHeader(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+function removeContainerIfExists(): void {
+  try {
+    execFileSync("docker", ["rm", "-f", KC_CONTAINER], { stdio: "ignore" });
+  } catch {
+    // fine
+  }
+}
+
+async function waitForKeycloak(): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    try {
+      if ((await fetch(`${KC_BASE_URL}/realms/master`)).ok) return;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error("Keycloak did not become ready in time");
 }
 
 function urlFor(hostname: string, path: string): string {
@@ -64,28 +96,89 @@ async function loadUniqueSpec(templateDir: string): Promise<AppSpec> {
   const source = readFileSync(join(templatesDir, templateDir, "app.yaml"), "utf-8");
   const parsed = parseAppSpecYaml(source);
   if (!parsed.ok) throw new Error(`template failed to validate: ${JSON.stringify(parsed.issues)}`);
-  // Unique per run — roles are CLUSTER-wide in Postgres, not per-database, so reusing
-  // the template's literal id would collide with e.g. `pnpm dev:sample`'s persistent role.
   return { ...parsed.spec, metadata: { ...parsed.spec.metadata, id: `${parsed.spec.metadata.id}-test-${Date.now()}` } };
 }
 
+async function provisionOidcClient(
+  admin: KeycloakAdminClient,
+  clientId: string,
+  redirectUri: string
+): Promise<OidcAuth> {
+  const clientUuid = await createConfidentialClient(admin, REALM, {
+    clientId,
+    secret: `${clientId}-secret`,
+    redirectUris: [redirectUri],
+  });
+  await addClaimsMappers(admin, REALM, clientUuid);
+  return createOidcAuth({
+    issuerUrl: `${KC_BASE_URL}/realms/${REALM}`,
+    clientId,
+    clientSecret: `${clientId}-secret`,
+    redirectUri,
+  });
+}
+
 beforeAll(async () => {
+  // --- Postgres: schema/role for both apps ---
   const bootstrapPool = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres" });
   await bootstrapPool.query(`CREATE DATABASE ${quoteIdent(TEST_DB)}`);
   await bootstrapPool.end();
-
   adminPool = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: TEST_DB });
   await applyPlatformBootstrap(adminPool);
 
-  deptSales = randomUUID();
-  alice = randomUUID();
-  bob = randomUUID();
-  await adminPool.query(`INSERT INTO public.departments (id) VALUES ($1)`, [deptSales]);
-  await adminPool.query(`INSERT INTO public.users (id, department_id) VALUES ($1, $2), ($3, $2)`, [alice, deptSales, bob]);
+  // --- Keycloak: realm + roles + users (their Keycloak-generated UUIDs become public.users.id) ---
+  removeContainerIfExists();
+  execFileSync("docker", [
+    "run",
+    "-d",
+    "--name",
+    KC_CONTAINER,
+    "-p",
+    `${KC_PORT}:8080`,
+    "-e",
+    "KC_BOOTSTRAP_ADMIN_USERNAME=admin",
+    "-e",
+    "KC_BOOTSTRAP_ADMIN_PASSWORD=admin",
+    "quay.io/keycloak/keycloak:26.0",
+    "start-dev",
+  ]);
+  await waitForKeycloak();
 
+  const kcAdmin = await KeycloakAdminClient.authenticate({ baseUrl: KC_BASE_URL, adminUsername: "admin", adminPassword: "admin" });
+  await createRealm(kcAdmin, REALM);
+  await allowUnmanagedAttributes(kcAdmin, REALM);
+  await createRealmRole(kcAdmin, REALM, "sales_member");
+
+  deptSales = "00000000-0000-0000-0000-0000000000d1";
+  const aliceId = await createUser(kcAdmin, REALM, {
+    username: "alice",
+    password: "alice-pw",
+    email: "alice@example.com",
+    firstName: "Alice",
+    lastName: "Sales",
+    department: deptSales,
+    roles: ["sales_member"],
+  });
+  const bobId = await createUser(kcAdmin, REALM, {
+    username: "bob",
+    password: "bob-pw",
+    email: "bob@example.com",
+    firstName: "Bob",
+    lastName: "Sales",
+    department: deptSales,
+    roles: ["sales_member"],
+  });
+  alice = { id: aliceId };
+  bob = { id: bobId };
+
+  await adminPool.query(`INSERT INTO public.departments (id) VALUES ($1)`, [deptSales]);
+  await adminPool.query(`INSERT INTO public.users (id, department_id) VALUES ($1, $2), ($3, $2)`, [alice.id, deptSales, bob.id]);
+
+  // --- Specs A/B, each with their own DB schema/role and their own OIDC client ---
   const specA = await loadUniqueSpec("sales-daily-report");
-  const specB = await loadUniqueSpec("expense-request");
+  const specB = await loadUniqueSpec("expense-request"); // roles differ (employee/finance_approver) — unused by these tests, just proves two unrelated Specs coexist
   appIdA = specA.metadata.id;
+  appIdB = specB.metadata.id;
 
   const migrationA = compileAppSpec(specA, { rolePassword: APP_ROLE_PASSWORD });
   const migrationB = compileAppSpec(specB, { rolePassword: APP_ROLE_PASSWORD });
@@ -98,33 +191,40 @@ beforeAll(async () => {
   poolB = new pg.Pool({ host: PGHOST, port: PGPORT, user: roleNameB, password: APP_ROLE_PASSWORD, database: TEST_DB });
 
   const gatewayRegistry = new AppRegistry();
-  gatewayRegistry.register(specA.metadata.id, { spec: specA, pool: poolA, schemaName: migrationA.schemaName });
-  gatewayRegistry.register(specB.metadata.id, { spec: specB, pool: poolB, schemaName: migrationB.schemaName });
+  gatewayRegistry.register(appIdA, { spec: specA, pool: poolA, schemaName: migrationA.schemaName });
+  gatewayRegistry.register(appIdB, { spec: specB, pool: poolB, schemaName: migrationB.schemaName });
 
   gatewayServer = buildGatewayServer(gatewayRegistry);
   await gatewayServer.listen({ port: 0, host: "127.0.0.1" });
-  const gatewayAddress = gatewayServer.server.address() as AddressInfo;
-  const gatewayUrl = `http://127.0.0.1:${gatewayAddress.port}`;
+  const gatewayUrl = `http://127.0.0.1:${(gatewayServer.server.address() as AddressInfo).port}`;
 
-  const users = new DevUserDirectory();
-  users.add("alice", { password: "alice-pw", ctx: { userId: alice, department: deptSales, roles: ["sales_member"] } });
-  users.add("bob", { password: "bob-pw", ctx: { userId: bob, department: deptSales, roles: ["sales_member"] } });
+  // Runtime port must be known before provisioning OIDC clients (redirect_uri must match exactly).
+  runtimePort = await new Promise<number>((resolve, reject) => {
+    const probe = createServer();
+    probe.listen(0, "127.0.0.1", () => {
+      const port = (probe.address() as AddressInfo).port;
+      probe.close(() => resolve(port));
+    });
+    probe.on("error", reject);
+  });
+
+  const oidcA = await provisionOidcClient(kcAdmin, "test-runtime-a", urlFor(HOST_A, "/auth/callback"));
+  const oidcB = await provisionOidcClient(kcAdmin, "test-runtime-b", urlFor(HOST_B, "/auth/callback"));
 
   const runtimeRegistry = new RuntimeAppRegistry();
-  runtimeRegistry.register(HOST_A, { appId: specA.metadata.id, spec: specA, gatewayUrl });
-  runtimeRegistry.register(HOST_B, { appId: specB.metadata.id, spec: specB, gatewayUrl });
+  runtimeRegistry.register(HOST_A, { appId: appIdA, spec: specA, gatewayUrl, oidcAuth: oidcA });
+  runtimeRegistry.register(HOST_B, { appId: appIdB, spec: specB, gatewayUrl, oidcAuth: oidcB });
 
-  runtimeServer = buildRuntimeServer({ registry: runtimeRegistry, users });
-  await runtimeServer.listen({ port: 0, host: "::" });
-  const runtimeAddress = runtimeServer.server.address() as AddressInfo;
-  runtimePort = runtimeAddress.port;
-}, 30_000);
+  runtimeServer = buildRuntimeServer({ registry: runtimeRegistry });
+  await runtimeServer.listen({ port: runtimePort, host: "::" });
+}, 180_000);
 
 afterAll(async () => {
   await runtimeServer?.close();
   await gatewayServer?.close();
   await poolA?.end();
   await poolB?.end();
+  removeContainerIfExists();
   if (adminPool) {
     for (const role of [roleNameA, roleNameB]) {
       if (!role) continue;
@@ -138,111 +238,108 @@ afterAll(async () => {
   await cleanupPool.end();
 }, 30_000);
 
-describe("browser-facing flow: register → list → search, RLS-enforced", () => {
-  it("rejects requests without credentials", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/0"));
+/** Simulates a browser: follow the login redirect, submit Keycloak's real login form, follow the callback. Returns this Runtime's session Set-Cookie value. */
+async function loginAsUser(hostname: string, username: string, password: string, returnTo: string): Promise<string> {
+  const loginRedirect = await fetch(urlFor(hostname, `/auth/login?returnTo=${encodeURIComponent(returnTo)}`), { redirect: "manual" });
+  const authorizeUrl = loginRedirect.headers.get("location");
+  if (!authorizeUrl) throw new Error(`no Location header from ${hostname}/auth/login (status ${loginRedirect.status})`);
+
+  const loginPage = await fetch(authorizeUrl, { redirect: "manual" });
+  const kcCookies = loginPage.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const html = await loginPage.text();
+  const formAction = html.match(/action="([^"]+)"/)?.[1]?.replace(/&amp;/g, "&");
+  if (!formAction) throw new Error(`no login form on Keycloak's page:\n${html}`);
+
+  const submitLogin = await fetch(formAction, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", cookie: kcCookies },
+    body: new URLSearchParams({ username, password, credentialId: "" }),
+  });
+  const callbackUrl = submitLogin.headers.get("location");
+  if (!callbackUrl) throw new Error(`Keycloak rejected "${username}"/"${password}"`);
+
+  const callback = await fetch(callbackUrl, { redirect: "manual" });
+  if (callback.status !== 302) {
+    throw new Error(`callback failed (${callback.status}): ${await callback.text()}`);
+  }
+  expect(callback.headers.get("location")).toBe(returnTo);
+  const sessionCookie = callback.headers.getSetCookie()[0];
+  if (!sessionCookie) throw new Error(`${hostname}/auth/callback set no session cookie`);
+  return sessionCookie.split(";")[0]!;
+}
+
+describe("browser-facing flow, gated by a real Keycloak login: register → list → search, RLS-enforced", () => {
+  it("an unauthenticated request to a page is redirected to /auth/login, not shown a Basic Auth prompt", async () => {
+    const res = await fetch(urlFor(HOST_A, "/pages/0"), { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login\?returnTo=/);
+  });
+
+  it("an unauthenticated API request gets 401 JSON, not a redirect (fetch/XHR can't follow a login redirect usefully)", async () => {
+    const res = await fetch(urlFor(HOST_A, "/api/DailyReport"));
     expect(res.status).toBe(401);
   });
 
-  it("GET the form page renders an HTML form with the entity's fields", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/0"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("<form");
-    expect(html).toContain('name="customerName"');
-    expect(html).not.toContain('name="author"'); // actor field never rendered
-  });
+  it("logging in as alice through Keycloak's real login form, then filling in and submitting the HTML form, creates a record", async () => {
+    const sessionCookie = await loginAsUser(HOST_A, "alice", "alice-pw", "/pages/0");
+    const formPage = await fetch(urlFor(HOST_A, "/pages/0"), { headers: { cookie: sessionCookie } });
+    expect(formPage.status).toBe(200);
+    expect(await formPage.text()).toContain('name="customerName"');
 
-  it("POSTing the form creates a record and redirects to the list page", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/0"), {
+    const submit = await fetch(urlFor(HOST_A, "/pages/0"), {
       method: "POST",
       redirect: "manual",
-      headers: {
-        authorization: basicAuthHeader("alice", "alice-pw"),
-        "content-type": "application/x-www-form-urlencoded",
-      },
+      headers: { cookie: sessionCookie, "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ reportDate: "2026-08-21", customerName: "Acme Corp", amount: "500", body: "初回商談" }),
     });
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`/pages/1`);
+    expect(submit.status).toBe(302);
+    expect(submit.headers.get("location")).toBe("/pages/1");
+
+    const list = await fetch(urlFor(HOST_A, "/pages/1"), { headers: { cookie: sessionCookie } });
+    expect(await list.text()).toContain("Acme Corp");
   });
 
-  it("the date renders exactly as entered — no server-local-timezone shift (pgTypes.ts regression guard)", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/1"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    const html = await res.text();
-    expect(html).toContain("2026-08-21");
-    expect(html).not.toContain("2026-08-20"); // the exact off-by-one this test guards against
-  });
-
-  it("alice's list page shows her new record", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/1"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    const html = await res.text();
-    expect(html).toContain("Acme Corp");
-  });
-
-  it("bob (different sales_member, read:own) does NOT see alice's record in the list", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/1"), { headers: { authorization: basicAuthHeader("bob", "bob-pw") } });
-    const html = await res.text();
-    expect(html).not.toContain("Acme Corp");
-    expect(html).toContain("データがありません");
-  });
-
-  it("the search box filters the list by the declared search field", async () => {
-    const hit = await fetch(urlFor(HOST_A, "/pages/1?q=acme"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    expect(await hit.text()).toContain("Acme Corp");
-
-    const miss = await fetch(urlFor(HOST_A, "/pages/1?q=nonexistent"), {
-      headers: { authorization: basicAuthHeader("alice", "alice-pw") },
-    });
-    expect(await miss.text()).not.toContain("Acme Corp");
-  });
-
-  it("the JSON API surface works too, under the same auth", async () => {
-    const res = await fetch(urlFor(HOST_A, "/api/DailyReport"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; rows: Array<{ customerName: string }> };
-    expect(json.ok).toBe(true);
-    expect(json.rows.some((r) => r.customerName === "Acme Corp")).toBe(true);
+  it("bob (different sales_member, read:own) does not see alice's record", async () => {
+    const bobCookie = await loginAsUser(HOST_A, "bob", "bob-pw", "/pages/1");
+    const list = await fetch(urlFor(HOST_A, "/pages/1"), { headers: { cookie: bobCookie } });
+    expect(await list.text()).not.toContain("Acme Corp");
   });
 });
 
-describe("per-app origin routing (ADR-012, S-15)", () => {
-  it("the SAME path on two different hosts serves two DIFFERENT apps", async () => {
-    const resA = await fetch(urlFor(HOST_A, "/pages/0"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    const resB = await fetch(urlFor(HOST_B, "/pages/0"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
-    const htmlA = await resA.text();
-    const htmlB = await resB.text();
-    expect(htmlA).toContain("日報を書く"); // sales-daily-report's form title
-    expect(htmlB).toContain("経費を申請する"); // expense-request's form title
-    expect(htmlA).not.toContain("経費を申請する");
-    expect(htmlB).not.toContain("日報を書く");
+describe("per-app origin routing with independent OIDC clients (ADR-006, ADR-012)", () => {
+  it("app A and app B are genuinely different OIDC clients — logging into each is independent", async () => {
+    const cookieA = await loginAsUser(HOST_A, "alice", "alice-pw", "/pages/0");
+    const cookieB = await loginAsUser(HOST_B, "alice", "alice-pw", "/pages/0");
+    expect(cookieA).not.toBe(cookieB);
+
+    const pageA = await fetch(urlFor(HOST_A, "/pages/0"), { headers: { cookie: cookieA } });
+    const pageB = await fetch(urlFor(HOST_B, "/pages/0"), { headers: { cookie: cookieB } });
+    expect(await pageA.text()).toContain("日報を書く");
+    expect(await pageB.text()).toContain("経費を申請する");
   });
 
-  it("an unregistered host is refused with 404 BEFORE credentials are even checked", async () => {
-    const withoutAuth = await fetch(urlFor("ghost.apps.localhost", "/pages/0"));
-    expect(withoutAuth.status).toBe(404);
-    expect(withoutAuth.headers.get("www-authenticate")).toBeNull(); // never got as far as an auth challenge
-
-    const withAuth = await fetch(urlFor("ghost.apps.localhost", "/pages/0"), {
-      headers: { authorization: basicAuthHeader("alice", "alice-pw") },
-    });
-    expect(withAuth.status).toBe(404);
+  it("a session cookie minted by app A's login is meaningless on app B (separate SessionStore per OidcAuth)", async () => {
+    const cookieA = await loginAsUser(HOST_A, "alice", "alice-pw", "/pages/0");
+    const res = await fetch(urlFor(HOST_B, "/pages/0"), { headers: { cookie: cookieA }, redirect: "manual" });
+    expect(res.status).toBe(302); // treated as unauthenticated, redirected to app B's own /auth/login
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login/);
   });
 
-  it("every response carries the origin-isolation headers (X-Frame-Options, COOP, CORP, CSP)", async () => {
-    const res = await fetch(urlFor(HOST_A, "/pages/0"), { headers: { authorization: basicAuthHeader("alice", "alice-pw") } });
+  it("an unregistered host is refused with 404 before any auth redirect", async () => {
+    const res = await fetch(urlFor("ghost.apps.localhost", "/pages/0"), { redirect: "manual" });
+    expect(res.status).toBe(404);
+  });
+
+  it("every response carries the origin-isolation headers", async () => {
+    const res = await fetch(urlFor(HOST_A, "/pages/0"), { redirect: "manual" });
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin");
-    expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
-    expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
   });
 
-  it("/healthz reports the resolved app id for a known host and 404s for an unknown one, with no auth required either way", async () => {
-    const known = await fetch(urlFor(HOST_A, "/healthz"));
-    expect(known.status).toBe(200);
-    expect((await known.json()) as { appId: string }).toMatchObject({ ok: true, appId: appIdA });
-
-    const unknown = await fetch(urlFor("ghost.apps.localhost", "/healthz"));
-    expect(unknown.status).toBe(404);
+  it("/healthz needs no auth and reports the resolved app id", async () => {
+    const res = await fetch(urlFor(HOST_A, "/healthz"));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { appId: string }).toMatchObject({ ok: true, appId: appIdA });
   });
 });

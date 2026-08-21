@@ -1,10 +1,9 @@
+import { OidcCallbackError, buildExpiredCookie, buildSessionCookie, parseCookieHeader, sessionCookieName } from "@aiappfactory/auth-bff";
 import { createCompanySdk, type CompanySdk, type ExecutionContext } from "@aiappfactory/company-sdk";
 import formbody from "@fastify/formbody";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { registerApiRoutes } from "./api.js";
 import type { RuntimeApp, RuntimeAppRegistry } from "./appRegistry.js";
-import { requireDevAuth } from "./auth.js";
-import type { DevUserDirectory } from "./devUsers.js";
 import { handleFormSubmit, renderPage } from "./pages.js";
 import { applySecurityHeaders } from "./securityHeaders.js";
 
@@ -17,23 +16,32 @@ declare module "fastify" {
 
 export interface RuntimeServerConfig {
   registry: RuntimeAppRegistry;
-  users: DevUserDirectory;
+}
+
+const AUTH_PATHS = new Set(["/auth/login", "/auth/callback", "/auth/logout"]);
+
+function isSecureRequest(request: FastifyRequest): boolean {
+  return request.protocol === "https";
+}
+
+function sessionIdFrom(request: FastifyRequest): string | undefined {
+  return parseCookieHeader(request.headers.cookie)[sessionCookieName(isSecureRequest(request))];
 }
 
 export function buildRuntimeServer(config: RuntimeServerConfig): FastifyInstance {
   const app = Fastify({ logger: false });
   void app.register(formbody); // parses application/x-www-form-urlencoded — the MVP HTML forms don't use JS/fetch
-  const authenticate = requireDevAuth(config.users);
 
   app.addHook("onSend", async (_request, reply) => {
     applySecurityHeaders(reply);
   });
 
   // Which app: decided by the origin the request arrived on (ADR-012), never a path
-  // segment or a client-supplied value. Resolved before auth so an unknown host
-  // gets a plain 404 rather than a credential prompt for an app that doesn't exist.
+  // segment or a client-supplied value. Resolved before auth so an unknown host gets
+  // a plain 404 rather than a login redirect for an app that doesn't exist.
   app.addHook("preHandler", async (request, reply) => {
     if (request.routeOptions.url === "/healthz") return;
+
     const runtimeApp = config.registry.resolve(request.hostname);
     if (!runtimeApp) {
       reply.code(404).send({ ok: false, error: `no app registered for host "${request.hostname}"` });
@@ -41,8 +49,55 @@ export function buildRuntimeServer(config: RuntimeServerConfig): FastifyInstance
     }
     request.runtimeApp = runtimeApp;
 
-    const ctx = await authenticate(request, reply);
-    if (ctx) request.ctx = ctx;
+    if (AUTH_PATHS.has(request.routeOptions.url ?? "")) return; // the login/callback/logout flow doesn't require an existing session
+
+    const claims = runtimeApp.oidcAuth.resolveSession(sessionIdFrom(request));
+    if (!claims) {
+      const isApiRequest = (request.routeOptions.url ?? "").startsWith("/api/");
+      if (isApiRequest) {
+        reply.code(401).send({ ok: false, error: "authentication required" });
+      } else {
+        const returnTo = request.url; // path + query, e.g. "/pages/1?q=acme"
+        reply.redirect(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
+      }
+      return;
+    }
+    request.ctx = { userId: claims.userId, department: claims.department, roles: claims.roles };
+  });
+
+  app.get<{ Querystring: { returnTo?: string } }>("/auth/login", async (request, reply) => {
+    const url = await request.runtimeApp!.oidcAuth.startLogin(request.query.returnTo ?? "/");
+    reply.redirect(url.href);
+  });
+
+  app.get("/auth/callback", async (request, reply) => {
+    const runtimeApp = request.runtimeApp!;
+    try {
+      // MUST include the port — openid-client derives the redirect_uri it sends to
+      // the token endpoint from this URL's origin, and Keycloak rejects the exchange
+      // if it doesn't match what was registered byte-for-byte (confirmed the hard
+      // way: request.hostname alone silently drops a non-default port).
+      const currentUrl = new URL(request.url, `${request.protocol}://${request.headers.host}`);
+      const { claims, returnTo } = await runtimeApp.oidcAuth.completeLogin(currentUrl);
+      const sid = runtimeApp.oidcAuth.createSession(claims);
+      const secure = isSecureRequest(request);
+      reply.header("set-cookie", buildSessionCookie(sessionCookieName(secure), sid, secure, 8 * 60 * 60));
+      reply.redirect(returnTo);
+    } catch (error) {
+      if (error instanceof OidcCallbackError) {
+        reply.code(400).send({ ok: false, error: error.message });
+        return;
+      }
+      throw error;
+    }
+  });
+
+  app.get("/auth/logout", async (request, reply) => {
+    const runtimeApp = request.runtimeApp!;
+    const secure = isSecureRequest(request);
+    runtimeApp.oidcAuth.destroySession(sessionIdFrom(request));
+    reply.header("set-cookie", buildExpiredCookie(sessionCookieName(secure), secure));
+    reply.redirect("/");
   });
 
   const sdkFor = (request: FastifyRequest): CompanySdk | undefined => {

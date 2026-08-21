@@ -63,10 +63,9 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
     `apps`/`app_versions` tables and `encrypted_secrets` (`packages/db`, not yet built). Whatever
     process registers an app today does so by calling `spec-compiler` and handing the resulting
     pool + schema name straight to the registry — there is no persistence yet.
-  - `company.auth.currentUser()` (01_ARCHITECTURE §5.2) isn't implemented — no Keycloak yet
-    (M4). `ExecutionContext` is currently just data the *caller* supplies; there is no session
-    verification. Do not treat this as production-ready auth — it's a placeholder for the shape
-    the real thing will have.
+  - `company.auth.currentUser()` (01_ARCHITECTURE §5.2) — the SDK-level accessor — still isn't
+    implemented, but the identity it would return now comes from a real Keycloak session
+    (`packages/auth-bff`, M4 below) rather than caller-supplied data.
   - DELETE is a real SQL `DELETE`, gated by spec-compiler's `FOR DELETE` RLS policy — NOT the
     soft-delete (`deletedAt`) pattern the schema's column suggests. The `deletedAt` column exists
     on every table but isn't wired into any query yet; don't assume soft-delete works.
@@ -74,11 +73,12 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
       see origin isolation below) and a server-rendered HTML MVP of the Spec renderer (`form`/`list` page types only —
       `detail`/`dashboard`/`import` render a "not implemented" placeholder rather than silently
       doing nothing). Everything goes through `company-sdk`; this process holds no DB
-      credentials. Auth is **HTTP Basic against an in-memory `DevUserDirectory`** — an explicit,
-      documented stand-in for Keycloak (M4), not something to mistake for real auth. 16 unit
-      tests (pure rendering functions) + an 8-test integration suite that drives the *entire*
-      stack over real HTTP — browser-shaped requests → apps/runtime → company-sdk →
-      sdk-gateway → real Postgres RLS — including submitting an HTML form and having the
+      credentials. Auth was originally an HTTP-Basic `DevUserDirectory` placeholder — **since
+      replaced by real Keycloak login** (`packages/auth-bff`, see M4 below); nothing in this repo
+      still uses Basic Auth. 20 unit tests (pure rendering functions + registry/header
+      assertions) + a 9-test integration suite that drives the *entire* stack over real HTTP —
+      browser-shaped requests → apps/runtime → company-sdk → sdk-gateway → real Postgres RLS,
+      gated by an actual Keycloak login form → including submitting an HTML form and having the
       created record actually show up (RLS-scoped) in the list page. Run via
       `pnpm --filter @aiappfactory/runtime test:integration`.
   - **This closes M1's own Definition of Done**: a hand-written Spec (`sales-daily-report`),
@@ -138,11 +138,13 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
   - `*.apps.localhost` resolves to loopback automatically on macOS/Chrome (RFC 6761) — no
     `/etc/hosts` edit needed for local dev. Real deployments still need real DNS + a wildcard
     cert (`docs/design/02_SECURITY...md §7.4`), which is Setup Wizard's job (M6), not built.
-  - What's still missing from ADR-012's full picture: real TLS (dev is plain HTTP — there are no
-    cookies yet to make `Secure`/`__Host-` meaningful; that lands with the BFF pattern in M4),
-    and `deploy-engine` itself — nothing here provisions DNS records, certs, or Traefik routes;
-    `RuntimeAppRegistry` is populated by hand (or by `scripts/dev-server.ts`), not by a
-    publish flow.
+  - What's still missing from ADR-012's full picture: real TLS — dev is plain HTTP, so the
+    session cookie `packages/auth-bff` now issues (see M4) runs in its non-`Secure`,
+    non-`__Host-`-prefixed mode (the code picks the stronger variant automatically once a
+    request actually arrives over HTTPS — see `cookies.ts` — nothing to redo, just nothing
+    exercising that path yet); and `deploy-engine` itself — nothing here provisions DNS records,
+    certs, or Traefik routes; `RuntimeAppRegistry` is populated by hand (or by
+    `scripts/dev-server.ts`), not by a publish flow.
 - [x] Wire the three integration suites (spec-compiler, sdk-gateway, runtime) into CI: a second
       `.github/workflows/ci.yml` job (`integration`) runs a `postgres:17` service container
       (`POSTGRES_HOST_AUTH_METHOD: trust`, mirroring the documented local dev setup) and runs all
@@ -155,13 +157,80 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
 **M1 is functionally complete.** Every checkbox above is done; nothing on this milestone's own
 Definition of Done is outstanding.
 
+## M4 — Identity & Store (Keycloak login slice done; rest not started)
+
+Goal per 04_IMPLEMENTATION §6: Keycloak integration, user/department/role management UI, Spec
+`access` → Keycloak role sync, App Store, one-click publish flow, audit log. Jumped ahead of M2/M3
+because the M1 walking skeleton's placeholder auth (`DevUserDirectory`, Basic Auth) was the
+one piece least honest to leave in place — everything else below is still genuinely unstarted.
+
+- [x] Keycloak login (04_IMPLEMENTATION E4-1's core): Authorization Code + PKCE, BFF pattern
+      (ADR-006) — the browser holds only an httpOnly session cookie, never a token.
+  - **`packages/keycloak-admin`**: realm/client/role/user provisioning over Keycloak's Admin
+    REST API. Not a general-purpose SDK — just what ADR-006 needs. Encodes three real gotchas
+    found by provisioning against an actual Keycloak instance (not guessed from docs): (1)
+    Keycloak 26's declarative User Profile silently *drops* any custom attribute (like
+    `department`) not declared in its schema — `unmanagedAttributePolicy: "ENABLED"` fixes it,
+    but the failure mode without it is silence, not an error; (2) the built-in "realm roles"
+    mapper defaults to `id.token.claim=false`, so `realm_access.roles` is in the access token
+    but NOT the ID token unless a dedicated client-level mapper is added; (3) creating a user
+    without `email`/`firstName`/`lastName` produces a working-looking 201/204 chain that only
+    fails later, opaquely, as `invalid_grant: "Account is not fully set up"` on first login.
+    4 unit tests (mocked fetch).
+  - **`packages/auth-bff`**: the OIDC logic itself, via `openid-client` v6. Deliberately does
+    NOT register Fastify routes — a Runtime process hosts MULTIPLE apps behind ONE set of
+    `/auth/login`, `/auth/callback`, `/auth/logout` paths (ADR-012), so route registration
+    happens once in `apps/runtime`, dispatching to whichever app's `OidcAuth` instance the
+    resolved Host maps to (one `OidcAuth` per app — ADR-006: each app is its own OIDC client).
+    Session store and PKCE/state "pending login" store are both in-memory `Map`s — correct for
+    one process, NOT for a horizontally-scaled deployment (needs Valkey — 01_ARCHITECTURE
+    §2.1 — before running more than one Runtime replica; tracked here, not solved). 16 unit
+    tests (cookies + session store) + a 5-test integration suite that drives the *entire* flow
+    against a real, freshly-provisioned Keycloak: follows the redirect to Keycloak's own hosted
+    login page, parses and submits its actual HTML login form, follows the callback, and checks
+    the resulting session — including a wrong password never reaching the callback, a replayed
+    callback URL failing the second time (state is one-shot), and logout actually clearing the
+    session. Run via `pnpm --filter @aiappfactory/auth-bff test:integration` — spins up its own
+    throwaway `quay.io/keycloak/keycloak` container via Docker.
+  - **`apps/runtime`**: `DevUserDirectory`/Basic Auth removed entirely (see M1's entry above,
+    already updated to reflect this — not left in place as a fallback). Unauthenticated HTML
+    page requests redirect to `/auth/login?returnTo=<original path>`; unauthenticated `/api/*`
+    requests get 401 JSON instead of a redirect a `fetch()` call can't usefully follow.
+    Discovered and fixed one real bug building this: constructing the callback URL from
+    `request.hostname` (which strips the port) instead of `request.headers.host` silently broke
+    every login, because `openid-client` derives the `redirect_uri` it sends to the token
+    endpoint from that URL's origin, and Keycloak rejects a mismatched one — the failure surfaced
+    as an opaque `token exchange failed`, not an obviously-a-port-bug error.
+  - `scripts/dev-server.ts` now provisions a real, *persistent* local Keycloak dev container
+    (`aiaf-dev-keycloak`, reused across re-runs like the `aiaf_dev` Postgres database already
+    was) with realm `factory-dev`, roles for both demo templates, and alice/bob/carol as real
+    Keycloak users. Verified live in a real browser, not just the automated suite: navigated to
+    the app, got redirected to Keycloak's actual hosted login page, signed in as alice, landed
+    back on the form, submitted a report, saw it in the RLS-scoped list with the correct date.
+    Also confirmed (and left as documented, intentional behavior, not a bug): visiting
+    `/auth/logout` clears *this app's* session but Keycloak's own SSO session cookie is still
+    live, so the very next `/auth/login` redirect silently re-authenticates without prompting —
+    a full cross-app SSO logout would need `end_session_endpoint` plumbing, not built.
+  - [x] Wired into CI alongside the Postgres-backed suites — `auth-bff`'s and `runtime`'s
+        integration tests manage their own throwaway Keycloak container via the Docker CLI
+        directly (GitHub-hosted `ubuntu-latest` runners have Docker by default), so no
+        `services:` entry was needed for it, unlike Postgres.
+- [ ] `company.auth.currentUser()` — expose the now-real session identity through Company SDK
+      itself, not just apps/runtime's own request context
+- [ ] User/department/role management UI (E4-2)
+- [ ] Spec `access` → Keycloak client role sync (E4-3) — roles are provisioned by hand
+      (`scripts/dev-server.ts`, or a test's own setup) today, not derived from a Spec's
+      `access.roles` automatically
+- [ ] App Store (E4-5), one-click publish flow (E4-6), audit log (E4-7) — none started
+- [ ] Realm/org provisioning is manual (`createRealm` called once by hand) — no
+      "new organization signs up → realm created automatically" flow
+
 ## Later milestones (unstarted)
 
 | MS | Name | Goal |
 |---|---|---|
 | M2 | AI Builder | Natural language → Spec generation → preview → conversational editing |
 | M3 | Security Gate | Gates 0/1/2/6/7/8/9 + Risk Engine + Auto Fix + approval flow |
-| M4 | Identity & Store | Keycloak SSO, departments/roles, App Store |
 | M5 | **v0.1 Public Alpha** | GitHub-public, third parties can run it via Compose |
 | M6 | Operations | Setup Wizard, Doctor, monitoring, backup, updates |
 | M7 | Polish & i18n | JA/EN UI, 10 templates, CSV/Excel import, docs site |

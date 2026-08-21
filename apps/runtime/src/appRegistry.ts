@@ -1,9 +1,12 @@
 import type { AppSpec } from "@aiappfactory/app-spec";
+import type { OidcAuth } from "@aiappfactory/auth-bff";
 
 export interface RuntimeApp {
   appId: string;
   spec: AppSpec;
   gatewayUrl: string;
+  /** One per app (ADR-006: each app is its own OIDC client) — never shared across two `RuntimeApp` entries. */
+  oidcAuth: OidcAuth;
 }
 
 /**
