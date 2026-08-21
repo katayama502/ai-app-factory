@@ -4,8 +4,10 @@
 
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
-> **現在の状態: 設計・雛形段階（M1着手前）。** `packages/app-spec`（Spec スキーマとバリデータ）はテスト付きで動作します。
-> AI Builder・App Runtime・Security Gate は設計段階であり、まだ動くコードではありません。
+> **現在の状態: M1（Walking Skeleton）着手中。** `packages/app-spec`（Spec スキーマ）・`packages/expr`
+> （制限式パーサ）・`packages/spec-compiler`（Spec→PostgreSQL DDL/RLS）はテスト付きで動作し、
+> spec-compiler は実際の Postgres に対する統合テストで RLS の分離が機能することまで検証済みです。
+> AI Builder・App Runtime・Security Gate はまだ動くコードではありません。
 > 「今、実際に動くもの」は [ROADMAP.md](./ROADMAP.md) を参照してください。
 
 ## 一言でいうと
@@ -21,12 +23,18 @@ SQL Injection も eval も、Spec の文法として *そもそも表現でき�
 「危険なものを書けなくする」というアプローチです。詳細は
 [`docs/adr/001-constrained-app-model.md`](./docs/adr/001-constrained-app-model.md)。
 
-## 動かしてみる（現時点で動く唯一の部分）
+## 動かしてみる
 
 ```bash
 pnpm install
-pnpm --filter @aiappfactory/app-spec test    # 18テスト（templates/ 配下の3サンプルSpec含む）
+pnpm build
+pnpm test                                                   # 全パッケージのユニットテスト
+pnpm --filter @aiappfactory/spec-compiler test:integration  # ローカルPostgresが必要（下記）
 ```
+
+統合テストは `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install postgresql@14`
+を想定）。使い捨てのデータベースとロールを作成し、成功・失敗にかかわらず `afterAll` で必ず削除します。
+CIにはまだ組み込んでいません（`ROADMAP.md` 参照）。
 
 `templates/` に3つのサンプル Spec（営業日報・経費申請・会議室予約）があります。
 

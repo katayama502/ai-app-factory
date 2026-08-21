@@ -49,29 +49,45 @@ original 89-point concept that were deliberately cut or changed for v1.0) is in
 ## Repository layout
 
 ```
-apps/console/        Next.js — Builder UI / App Store / Admin / Setup Wizard
-apps/runtime/         Generic App Runtime that interprets a Spec (T1/T2)
-services/             Factory API, AI Gateway, AI Orchestrator, Security Gate, Deploy Engine, SDK Gateway
-packages/app-spec/    ★ The Spec schema, validator, and canonical hashing — the foundation everything else builds on
-packages/...          Company SDK, spec-compiler, risk-engine, scanners, audit, db, ui, i18n
-policies/             Default Rego policies (Gate 1)
-templates/            App Spec templates, ready to run — the on-ramp for non-code contributions
-docs/adr/             Architecture Decision Records
+apps/console/          Next.js — Builder UI / App Store / Admin / Setup Wizard (not started)
+apps/runtime/          Generic App Runtime that interprets a Spec (T1/T2) (not started)
+services/              Factory API, AI Gateway, AI Orchestrator, Security Gate, Deploy Engine, SDK Gateway (not started)
+packages/app-spec/     ★ The Spec schema, validator, and canonical hashing — the foundation everything else builds on
+packages/expr/         Restricted expression parser + compiler (ADR-010 computed fields, ADR-011 rowLevel → RLS)
+packages/spec-compiler/  Spec → PostgreSQL DDL/RLS (ADR-007) — includes a real-Postgres integration test suite
+packages/...           Company SDK, risk-engine, scanners, audit, db, ui, i18n (not started)
+policies/              Default Rego policies (Gate 1) (not started)
+templates/             App Spec templates, ready to run — the on-ramp for non-code contributions
+docs/adr/              Architecture Decision Records
 ```
 
 See [`03_REPOSITORY_リポジトリ構成とOSS運営.md`](./docs/design/03_REPOSITORY_リポジトリ構成とOSS運営.md) for the
 full target layout and OSS governance model.
 
-## Try the Spec schema today
+## Try it today
 
-The only runnable piece so far is `packages/app-spec`. It validates App Specs and enforces the
-referential-integrity and security-shaped rules (no internal-IP egress, `actor` fields must be
-system-injected, etc.) described in the design docs.
+Three packages are real, tested code so far:
+
+- **`packages/app-spec`** validates App Specs and enforces referential-integrity and
+  security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
+- **`packages/expr`** parses and compiles the restricted `computed`/`rowLevel` expression
+  grammar (ADR-010, ADR-011) to SQL.
+- **`packages/spec-compiler`** compiles a validated Spec to the PostgreSQL DDL and RLS policies
+  that provision an app's isolated schema (ADR-007). Its integration suite applies that SQL to
+  a real Postgres server and proves the row-level isolation actually holds — not just that the
+  generated SQL parses.
 
 ```bash
 pnpm install
-pnpm --filter @aiappfactory/app-spec test    # 18 tests, including the 3 templates below
+pnpm build
+pnpm test                                                   # unit tests across all packages
+pnpm --filter @aiappfactory/spec-compiler test:integration  # needs a local Postgres — see below
 ```
+
+The integration suite expects a reachable Postgres superuser at `127.0.0.1:5432` (this repo's
+dev setup uses `brew install postgresql@14`, trust-authenticated on localhost). It creates one
+throwaway database and one throwaway role and drops both in `afterAll`, regardless of pass/fail.
+Not yet wired into CI — see `ROADMAP.md`.
 
 ```ts
 import { parseAppSpecYaml } from "@aiappfactory/app-spec";

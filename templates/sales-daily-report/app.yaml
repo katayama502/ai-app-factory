@@ -53,7 +53,7 @@ access:
     - { role: exec, grants: [read] }
   rowLevel:
     own: "record.author == ctx.user.id"
-    dept: "record.author.department == ctx.user.department"
+    dept: "department_of(record.author) == ctx.user.department"
 
 automations:
   - id: notifyLargeDeal

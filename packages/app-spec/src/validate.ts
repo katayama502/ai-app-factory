@@ -76,6 +76,21 @@ function checkReferentialIntegrity(spec: AppSpec): ValidationIssue[] {
 
   const roleNames = new Set(spec.access.roles.map((r) => r.role));
 
+  // any ":own" / ":dept" grant needs a matching access.rowLevel key SOMEWHERE in the
+  // Spec (packages/spec-compiler decides, per entity, whether that rule actually
+  // applies to a given entity's fields — see UnknownFieldError in @aiappfactory/expr).
+  spec.access.roles.forEach((roleGrant, ri) => {
+    roleGrant.grants.forEach((grant, gi) => {
+      const scope = grant.includes(":") ? grant.split(":")[1] : undefined;
+      if (scope && !spec.access.rowLevel?.[scope]) {
+        issues.push({
+          path: `access.roles[${ri}].grants[${gi}]`,
+          message: `grant "${grant}" requires access.rowLevel.${scope} to be defined`,
+        });
+      }
+    });
+  });
+
   // ui.pages: entity + field references
   spec.ui.pages.forEach((page, i) => {
     const path = `ui.pages[${i}]`;

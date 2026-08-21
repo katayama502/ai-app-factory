@@ -1,0 +1,37 @@
+{
+  "name": "@aiappfactory/spec-compiler",
+  "version": "0.1.0",
+  "description": "Compiles a validated App Spec to PostgreSQL DDL: per-app schema/role, tables, RLS policies compiled from access.rowLevel, and GENERATED columns compiled from computed fields (ADR-007, ADR-010, ADR-011).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:integration": "vitest run test/integration",
+    "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
+  },
+  "dependencies": {
+    "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/expr": "workspace:*",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

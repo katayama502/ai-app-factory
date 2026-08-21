@@ -39,7 +39,7 @@ access:
     - { role: finance_approver, grants: ["read:dept", "update:dept", export] }
   rowLevel:
     own: "record.requester == ctx.user.id"
-    dept: "record.requester.department == ctx.user.department"
+    dept: "department_of(record.requester) == ctx.user.department"
 
 automations:
   - id: notifySubmitted

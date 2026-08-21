@@ -26,6 +26,7 @@ const baseSpec = {
   },
   access: {
     roles: [{ role: "member", grants: ["create", "read:own"] }],
+    rowLevel: { own: "record.owner == ctx.user.id" },
   },
 };
 
@@ -153,5 +154,15 @@ describe("validateAppSpec — referential integrity", () => {
     const spec = clone(baseSpec);
     spec.data.entities.push(clone(baseSpec.data.entities[0]));
     expect(validateAppSpec(spec).ok).toBe(false);
+  });
+
+  it("rejects a scoped grant (e.g. update:dept) with no matching access.rowLevel key", () => {
+    const spec = clone(baseSpec);
+    spec.access.roles[0].grants.push("update:dept"); // rowLevel only defines "own"
+    const result = validateAppSpec(spec);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.some((i) => i.message.includes("rowLevel.dept"))).toBe(true);
+    }
   });
 });

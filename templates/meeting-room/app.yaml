@@ -42,6 +42,12 @@ access:
   roles:
     - { role: employee, grants: [create, read, "update:own", "delete:own"] }
     - { role: facility_admin, grants: [create, read, update, delete, export] }
+  # Both entities in this app share this one access block (the App Spec model is
+  # app-wide, not per-entity — see docs/adr/007-data-isolation-schema-rls.md). "own"
+  # here means "the field named reservedBy on this row" — Room has no such field, so
+  # the :own-scoped grants only ever take effect on Reservation records.
+  rowLevel:
+    own: "record.reservedBy == ctx.user.id"
 
 automations: []
 
