@@ -1,0 +1,6 @@
+# Replace @OWNER with your GitHub username before pushing.
+# Per-area CODEOWNERS (security / spec / runtime / ui / docs) is planned once the team
+# grows past one person — see docs/design/03_REPOSITORY...md §6.3. For now everything
+# routes to a single owner.
+
+* @OWNER

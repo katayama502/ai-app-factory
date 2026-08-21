@@ -1,0 +1,28 @@
+name: Feature / design proposal
+description: Propose a change to the App Spec schema, an ADR revision, or a new template
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes to `packages/app-spec/src/schema.ts` are changes to a public contract
+        (see CONTRIBUTING.md) — please describe the use case, not just the desired schema
+        shape, so the trade-off against Spec-grammar simplicity can be evaluated.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: A concrete app or scenario you can't currently express as a Spec.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Could this be done with the existing schema, or as a new template instead?

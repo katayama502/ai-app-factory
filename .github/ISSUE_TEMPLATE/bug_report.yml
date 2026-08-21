@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in the repo (schema, validator, CI, docs) doesn't work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is pre-M1 (see ROADMAP.md) — most of the architecture described in
+        `docs/design/` is not implemented yet. Please check that what you're reporting is
+        about code that actually exists (`packages/app-spec`, the monorepo tooling, CI)
+        rather than a planned-but-unbuilt component.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you actually get?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, ideally including the exact command you ran.
+      placeholder: |
+        1. pnpm --filter @aiappfactory/app-spec test
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit / version
+      description: Output of `git rev-parse HEAD`, or the release tag.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS:
+        Node version (`node -v`):
+        pnpm version (`pnpm -v`):
+    validations:
+      required: true

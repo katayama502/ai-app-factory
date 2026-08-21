@@ -4,6 +4,14 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/ai-app-factory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OWNER/ai-app-factory/issues"
+  },
+  "homepage": "https://github.com/OWNER/ai-app-factory#readme",
   "engines": {
     "node": ">=20.11.0",
     "pnpm": ">=9.0.0"
