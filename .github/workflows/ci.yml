@@ -31,6 +31,12 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+      - run: pnpm sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
   integration:
     runs-on: ubuntu-latest
     services:

@@ -69,6 +69,19 @@ describe("runSecurityGate — Gate 2 (secrets)", () => {
   });
 });
 
+describe("runSecurityGate — S-08 fail-closed: a gate that crashes is RED, not silently GREEN", () => {
+  it("a scanner throwing mid-check is treated as CRITICAL, not as \"found nothing\"", () => {
+    // Gate 2 calls sourceText.match(...) — a non-string sourceText makes it throw,
+    // simulating "the scanner crashed" via the same public options object a real
+    // caller would use, no internal test hooks needed. (Must be non-nullish: `??`
+    // in runSecurityGate would otherwise fall back to a working default.)
+    const result = runSecurityGate(baseSpec, { sourceText: 12345 as unknown as string });
+    expect(result.verdict).toBe("RED");
+    expect(result.findings.some((f) => f.gate === "gate-crash" && f.severity === "CRITICAL")).toBe(true);
+    expect(result.specHash).toMatch(/^[0-9a-f]{64}$/); // still available — Gate 0 already ran successfully
+  });
+});
+
 describe("runSecurityGate — Gate 6 (PII under-classification heuristic)", () => {
   it("flags an email-looking field on an INTERNAL (not PERSONAL+) entity", () => {
     const spec = {

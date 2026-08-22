@@ -1,4 +1,4 @@
-import type { KeycloakAdminClient } from "./client.js";
+import { KeycloakAdminError, type KeycloakAdminClient } from "./client.js";
 
 export async function createRealm(admin: KeycloakAdminClient, realm: string): Promise<void> {
   await admin.request("POST", "/admin/realms", { realm, enabled: true });
@@ -80,6 +80,44 @@ export async function addClaimsMappers(admin: KeycloakAdminClient, realm: string
 
 export async function createRealmRole(admin: KeycloakAdminClient, realm: string, roleName: string): Promise<void> {
   await admin.request("POST", `/admin/realms/${realm}/roles`, { name: roleName });
+}
+
+/** Looks up a client's internal UUID by its clientId (the human-readable one every other function here takes) — the Admin API's own delete/mapper endpoints need the UUID, not the clientId. */
+async function findClientUuid(admin: KeycloakAdminClient, realm: string, clientId: string): Promise<string | undefined> {
+  const clients = await admin.request<Array<{ id: string; clientId: string }>>(
+    "GET",
+    `/admin/realms/${realm}/clients?clientId=${encodeURIComponent(clientId)}`
+  );
+  return clients?.find((c) => c.clientId === clientId)?.id;
+}
+
+/**
+ * Deletes the OIDC client for an archived app (04_IMPLEMENTATION E9-8 "ARCHIVED 時の
+ * リソース回収（... / OIDC client / ...）"). Idempotent — looks the client up by its
+ * clientId first and returns `false` if it's already gone, rather than relying on
+ * DELETE-on-404 semantics that would make a re-run throw.
+ */
+export async function deleteClient(admin: KeycloakAdminClient, realm: string, clientId: string): Promise<boolean> {
+  const uuid = await findClientUuid(admin, realm, clientId);
+  if (!uuid) return false;
+  await admin.request("DELETE", `/admin/realms/${realm}/clients/${uuid}`);
+  return true;
+}
+
+/**
+ * Deletes a realm role (04_IMPLEMENTATION E9-8). Idempotent — a 404 (already
+ * deleted, or a role that was declared in a Spec's `access.roles` but never actually
+ * provisioned) is treated as `false`, not an error: the end state the caller wants
+ * ("this role doesn't exist") already holds either way.
+ */
+export async function deleteRealmRole(admin: KeycloakAdminClient, realm: string, roleName: string): Promise<boolean> {
+  try {
+    await admin.request("DELETE", `/admin/realms/${realm}/roles/${roleName}`);
+    return true;
+  } catch (error) {
+    if (error instanceof KeycloakAdminError && error.status === 404) return false;
+    throw error;
+  }
 }
 
 export interface UserOptions {

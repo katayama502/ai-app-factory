@@ -34,7 +34,24 @@ export function runSecurityGate(input: unknown, options: SecurityGateOptions = {
   }
 
   const sourceText = options.sourceText ?? JSON.stringify(input);
-  const findings: Finding[] = [...gate0.findings, ...runGate2(sourceText), ...runGate6(gate0.spec), ...(options.aiReviewFindings ?? [])];
+
+  let findings: Finding[];
+  try {
+    findings = [...gate0.findings, ...runGate2(sourceText), ...runGate6(gate0.spec), ...(options.aiReviewFindings ?? [])];
+  } catch (error) {
+    // S-08 (02_SECURITY §12, fail-closed: "スキャナを意図的に落として publish → RED"). A
+    // gate that throws must never be silently treated as "found nothing" — this
+    // forces RED exactly like an explicit CRITICAL finding would, with the
+    // underlying error preserved so an operator can tell "no issues" from
+    // "couldn't check."
+    const crashFinding: Finding = {
+      gate: "gate-crash",
+      severity: "CRITICAL",
+      message: `a security gate crashed before completing: ${error instanceof Error ? error.message : String(error)}`,
+      source: "deterministic",
+    };
+    return { ...evaluate([...gate0.findings, crashFinding]), specHash: hashAppSpec(gate0.spec) };
+  }
 
   const result = evaluate(findings);
   return { ...result, specHash: hashAppSpec(gate0.spec) };

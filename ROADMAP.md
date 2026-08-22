@@ -423,14 +423,120 @@ the repo layout already calls `templates/` out as.
       unimplemented placeholder (see M1's entry above); no parsing/dry-run logic exists
 - [ ] Docs site — `docs/` is markdown-only, no generated site/search
 
-## Later milestones (unstarted)
+## M8 — v0.5 Public Beta (deliberately not attempted)
 
-| MS | Name | Goal |
-|---|---|---|
-| M8 | **v0.5 Public Beta** | Pilots with 3 real companies |
-| M9 | Hardening | Security tests S-01–S-18, external audit, T3 experimental |
-| M10 | **v1.0 GA** | LTS begins, SBOM + signing, docs complete |
-| M11 | Desktop | v1.1: Windows/macOS installers, offline bundle |
+Goal per 04_IMPLEMENTATION: pilots with 3 real companies (explicitly including at least one
+"IT-staff-less SME" — the platform's actual target user), measuring setup completion rate, time to
+first published app, drop-off points, and regeneration counts, to set M9's priorities.
+
+- [ ] **Everything in M8 is a real-company pilot program** — by explicit instruction, this was not
+      attempted in this session ("日企業でのパイロット試験は無しでOKです"). There is no code-shaped
+      subset of M8 to build: its entire Definition of Done is running actual pilots with actual
+      companies and collecting actual usage data, none of which a coding session can substitute for
+      or fake convincingly. Nothing else in 04_IMPLEMENTATION's M8 section exists beyond this.
+
+## M9 — Hardening (lightweight slice: S-01~S-18 traceability + 2 new tests + ARCHIVED cleanup)
+
+Goal per 04_IMPLEMENTATION E9-1~E9-9: full automation of security tests S-01–S-18, 300-user
+performance testing, external penetration testing, fault injection, T3 experimental (Deno sandbox
++ Gate 3/4/5/8), upgrade testing, ARCHIVED resource cleanup, and pilot-driven UI polish. Scoped
+down to what's genuinely buildable without pilots, an external auditor, or unbuilt subsystems
+(T3, an audit log, a container-per-app runtime, Gate 9) — see the traceability table below for
+exactly which of S-01–S-18 that leaves testable today.
+
+- [x] **S-01–S-18 traceability** (E9-1's spirit: "完全自動化" starts with knowing what's actually
+      covered). None of these are new tests for their own sake — most were already running in CI
+      from earlier milestones and simply hadn't been cataloged against the threat model's own
+      numbering:
+
+  | # | Threat | Status | Where |
+  |---|---|---|---|
+  | S-01 | Cross-tenant read via SDK token | ⚠ Partial | No per-app SDK *token* auth exists yet (sdk-gateway is called host-internally, not via a bearer token an attacker could hold) — but app-to-app isolation at the session/origin layer is tested: `apps/runtime/test/integration/browser-flow.pg.test.ts` ("app A and app B are genuinely different OIDC clients", "a session cookie minted by app A's login is meaningless on app B") |
+  | S-02 | RLS bypass via direct SQL | ✅ | `packages/spec-compiler/test/integration/rls.pg.test.ts` — connects with the app's own low-privilege role and confirms RLS still applies, and that Control Plane tables aren't directly readable |
+  | S-03 | Egress to an undeclared host | ❌ Not built | No `deploy-engine`/per-app network sandbox exists to enforce this against yet — `network.egress` is schema-validated (SSRF-shaped hosts rejected at Gate 0) but nothing runtime-enforces "only declared hosts" |
+  | S-04 | App reaches Control Plane/Keycloak/DB directly | ❌ Not built | Same — needs per-app network isolation, which needs containerization (M5's other, unbuilt half) |
+  | S-05 | IDOR (404, not 403) | ✅ | `services/sdk-gateway/test/integration/http.pg.test.ts` — explicitly tagged in the test name |
+  | S-06 | Privilege escalation to an Admin API | ❌ N/A | No Admin API exists yet to escalate to; the closest analog (a role attempting a grant it doesn't hold) is covered under general authorization tests, not this specific threat |
+  | S-07 | Secret detection → RED | ✅ | `packages/security-gate/test/evaluateSpec.test.ts` — "Gate 2 (secrets)" describe block |
+  | S-08 | Fail-closed on scanner crash → RED | ✅ **New this milestone** | `evaluateSpec.ts` now catches a gate throwing and returns RED with a CRITICAL `gate-crash` finding instead of letting the exception escape uncaught; test in the same file |
+  | S-09 | Signed verdict tamper detection | ✅ | `packages/risk-engine/test/signing.test.ts` |
+  | S-10 | Audit log tamper detection | ❌ Not built | `packages/audit` doesn't exist yet |
+  | S-11 | Setup protection (no token → 403) | ✅ | `packages/setup-guard/test/routes.test.ts` + its integration suite |
+  | S-12 | Prompt injection blocked by Spec validation | ✅ **New this milestone** | `packages/ai-core/test/specGenerator.test.ts` — a model output shaped by a prompt-injection attempt (SSRF-shaped egress) is rejected exactly like any other invalid attempt, across all retries |
+  | S-13 | PERSONAL data blocks external LLM routing | ❌ Not built | No classification-aware LLM routing exists (`ai.features`'s `policy.allowExternal` is schema-only, nothing reads it at call time) |
+  | S-14 | Generated-app container hardening | ❌ Not built | No per-app container exists to harden |
+  | S-15 | Origin isolation | ✅ | `apps/runtime/test/integration/browser-flow.pg.test.ts` — "every response carries the origin-isolation headers" + confirmed by hand in a real browser (see M1's entry above) |
+  | S-16 | DB credentials never distributed to the app process | ✅ **New this milestone** | `apps/runtime/test/noDbCredentials.test.ts` — structural test: neither `apps/runtime` nor `company-sdk` depends on `pg` in production, or imports it anywhere in `src/` |
+  | S-17 | RLS principal doesn't leak between requests on a pooled connection | ✅ | `packages/spec-compiler/test/integration/rls.pg.test.ts` — "fail-closed: no factory.roles set at all", plus every per-user test in that suite runs against the SAME pool, proving `SET LOCAL` scoping holds across consecutive different-user transactions |
+  | S-18 | Gate 9 detects `access.roles` vs. actual-behavior mismatch | ❌ Not built | Gate 9 (acceptance-test generation from a Spec) doesn't exist |
+
+  **9 of 18 covered (or partially covered), 9 blocked on unbuilt subsystems** — T3 sandboxing
+  (S-03/S-04/S-14), an audit log (S-10), classification-aware LLM routing (S-13), a real Admin API
+  (S-06), and Gate 9 (S-18). None of these were faked or approximated to inflate the count.
+- [x] E9-8 — **ARCHIVED resource cleanup**: `archiveApp(pool, schemaName, roleName)`
+      (`packages/spec-compiler`) reverses `compileAppSpec`'s provisioning — drops the schema
+      (`CASCADE`, taking every table/policy with it) and the role (`DROP OWNED BY` first, to
+      release the resolver-function `EXECUTE` grants, then `DROP ROLE`). Idempotent by checking
+      existence first (`DROP OWNED BY` has no `IF EXISTS` form and errors on a role that's already
+      gone). `deleteClient`/`deleteRealmRole` (`packages/keycloak-admin`) do the same for the OIDC
+      client and realm roles a Spec's `access.roles` provisioned. Verified against a real Postgres
+      server (provision → confirm exists → archive → confirm gone → archive again → confirm the
+      second call is a no-op, not an error) — 3 integration tests. `keycloak-admin`'s two functions
+      are unit-tested with mocked fetch (matching that package's existing test style; a live-Keycloak
+      integration suite for delete would be redundant with the create-side coverage `auth-bff`/
+      `setup-guard` already have against the same API surface).
+  - Not wired into any actual "archive this app" flow — like the rest of M9, this is tested,
+    reusable code with nothing calling it yet, since there's no App Store/admin UI to trigger an
+    archive action from
+- [ ] E9-2 performance testing (50 apps / 300 users), E9-3 external security audit, E9-4 fault
+      injection (DB/AI-API/disk/scanner down), E9-5 T3 experimental, E9-6 upgrade testing (no
+      version has ever been tagged, so "v0.1 → v0.5 → v1.0 migration" has nothing to migrate
+      between yet), E9-7 Tauri PoC (folded into M11 below), E9-9 pilot-driven UI polish (blocked on
+      M8) — none attempted; each either needs infrastructure/tooling well beyond this session's
+      scope (a real pentest, a 300-user load rig) or a prerequisite this repo doesn't have yet
+
+## M10 — v1.0 GA (lightweight slice: SBOM generation; rest is a business decision, not code)
+
+Goal per 04_IMPLEMENTATION: begin an LTS policy with a 12-month security-support declaration,
+publish compliance documentation (personal data handling, data residency, external transmission
+disclosure), SBOM + signing, and at least 2 published case studies.
+
+- [x] `scripts/sbom.ts` (`pnpm sbom`, or `pnpm sbom -- --stdout`): generates a CycloneDX 1.5 JSON
+      SBOM covering every workspace package (12, as first-party `application` components) and
+      every resolved third-party npm dependency — direct and transitive, deduplicated by
+      name@version — as `library` components, with each one's REAL license read from its own
+      installed `package.json` (not guessed or omitted). Sourced from `pnpm list -r --json
+      --depth=Infinity` (pnpm's own authoritative resolution) rather than a hand-parse of
+      `pnpm-lock.yaml`, which would just be a second, driftable copy of the same data. Verified by
+      running it for real: 12 workspace packages + 354 unique third-party dependencies, 277 of
+      which had a real license recorded. Wired into CI (`.github/workflows/ci.yml`) as a build
+      artifact on every run, not just a command that exists but nobody runs.
+- [ ] Signing — nothing to sign yet. There's no release artifact (no container image from M5, no
+      tagged version) for a signature to attach meaningful provenance to; building a signing step
+      ahead of having something real to sign would just be theater
+- [ ] LTS policy, 12-month security-support declaration, compliance documentation, case studies,
+      an actual v1.0 tag — **these are business/organizational decisions about a real, public
+      commitment, not implementation tasks a coding session can responsibly make on the repo
+      owner's behalf.** This repo is still private by earlier explicit decision (see the M0–M4
+      history above) and has not shipped a single tagged release; declaring "v1.0 GA" or "LTS"
+      over it would be dishonest regardless of how much lightweight code exists underneath
+
+## M11 — Desktop (not attempted — see reasoning)
+
+Goal per 04_IMPLEMENTATION: v1.1, Windows/macOS installers, an offline bundle. Even
+04_IMPLEMENTATION's own 1-person-team prioritization (§11) scopes the *relevant* M9 item (E9-7) to
+"Tauri ランチャーの技術検証（v1.1 に向けた PoC のみ）" — a technical proof-of-concept, not a shipped
+installer — and that's for the milestone BEFORE this one.
+
+- [ ] Not attempted. Three reasons, not just one: (1) this session can build and run on macOS
+      (this dev machine) but has no way to build *or test* a Windows installer at all; (2) a real
+      installer needs to bundle/manage Postgres + Keycloak + Node for a non-technical end user,
+      which is a substantial undertaking in its own right, not a thin wrapper around
+      `pnpm dev:sample`; (3) producing something that merely *looks* like an installer without
+      being verified to actually install and run correctly would be worse than not having one —
+      a broken installer actively costs a non-engineer user's trust in a way "not built yet" does
+      not. Given M8 (real users) and M9's harder items (external audit, T3) are also not done, an
+      installer for a product that isn't yet hardened or piloted would be premature regardless.
 
 ## Known risks actively being tracked
 

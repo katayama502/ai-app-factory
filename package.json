@@ -25,7 +25,8 @@
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "dev:sample": "tsx scripts/dev-server.ts",
-    "doctor": "tsx scripts/doctor.ts"
+    "doctor": "tsx scripts/doctor.ts",
+    "sbom": "tsx scripts/sbom.ts"
   },
   "devDependencies": {
     "@aiappfactory/app-spec": "workspace:*",

@@ -6,7 +6,7 @@ runs in your production environment.**
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
 > **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice, plus lightweight
-> M0/M2/M3/M5/M6/M7 slices.** A hand-written App Spec, with no AI involved, compiles to an
+> M0/M2/M3/M5/M6/M7/M9/M10 slices.** A hand-written App Spec, with no AI involved, compiles to an
 > isolated Postgres schema and is reachable as a real app in a browser — gated by an actual
 > Keycloak login (Authorization Code + PKCE, BFF pattern), not a dev placeholder: register a
 > record via an HTML form, see it in a list, search it, and have row-level access control hold for
@@ -17,9 +17,16 @@ runs in your production environment.**
 > infra a third party needs (Postgres/Valkey/Keycloak) now boots via `docker compose` (M5's infra
 > slice — the app processes themselves still run as host Node commands, not container images), a
 > `pnpm doctor` pre-flight check reports what's missing with Japanese remediation hints (M6's
-> slice), and 5 of a planned 10 App Spec templates exist (M7's slice). None of this is wired into a
-> UI or a publish flow yet — every piece above is a tested library, not a running product.
-> See [ROADMAP.md](./ROADMAP.md) for the exact state.
+> slice), and 5 of a planned 10 App Spec templates exist (M7's slice). Against the security threat
+> model's own S-01–S-18 numbering, 9 are covered (traced to their tests, 3 newly added) and 9 are
+> honestly marked not-yet-applicable — no unbuilt feature (M9's slice); archiving an app now
+> actually tears down its Postgres schema/role and Keycloak client/roles, verified against real
+> servers (also M9); and `pnpm sbom` generates a real CycloneDX SBOM from the actual resolved
+> dependency tree, wired into CI (M10's slice — signing and an actual GA release remain undone,
+> since there's nothing to sign yet and declaring GA is a business decision, not a coding task).
+> M8 (real-company pilots) and M11 (desktop installers) were deliberately not attempted — see
+> ROADMAP.md for why. None of this is wired into a UI or a publish flow yet — every piece above is
+> a tested library, not a running product. See [ROADMAP.md](./ROADMAP.md) for the exact state.
 
 ## The idea, in one sentence
 
@@ -209,6 +216,16 @@ Five worked example Specs live in [`templates/`](./templates/) (M7's early progr
 approval role, a meeting-room booking system with a `reference` field, an IT equipment request
 with an unscoped admin role, and a vacation request with department-scoped manager approval.
 
+### Check your setup, and generate an SBOM
+
+```bash
+pnpm doctor   # M6: Node/pnpm/Docker presence, RAM/disk, and dev-flow port availability — with
+              # a Japanese remediation hint for anything that isn't clean
+pnpm sbom     # M10: a real CycloneDX 1.5 SBOM (sbom.cdx.json) covering all 12 workspace packages
+              # and every resolved third-party dependency, with real license data — also runs in
+              # CI on every push as a build artifact
+```
+
 ## Architecture Decision Records
 
 Key decisions (and the alternatives rejected) are in [`docs/adr/`](./docs/adr/), including why the
@@ -221,8 +238,11 @@ Spec model exists at all (ADR-001), why every app gets its own subdomain instead
 See [`ROADMAP.md`](./ROADMAP.md). In short: M0 (this scaffold) → M1 Walking Skeleton (a Spec you
 hand-write turns into a running app with no AI involved) → M2 AI Builder (generate that same kind
 of Spec from a description) → M3 Security Gate (score it GREEN/YELLOW/RED) → M4 Identity & Store →
-M5 v0.1 Public Alpha (run it via Compose) → M6 Operations → M7 Polish & i18n → ... → v0.5 Public
-Beta. M0/M2/M3/M5/M6/M7 above are lightweight first slices, not their full scope.
+M5 v0.1 Public Alpha (run it via Compose) → M6 Operations → M7 Polish & i18n → M8 v0.5 Public Beta
+(real-company pilots — deliberately not attempted) → M9 Hardening → M10 v1.0 GA (SBOM generated;
+signing and an actual GA declaration still pending) → M11 Desktop (not attempted).
+M0/M2/M3/M5/M6/M7/M9/M10 above are lightweight first slices, not their full scope; M8 and M11 are
+untouched by design — see ROADMAP.md for why.
 
 ## Contributing
 
