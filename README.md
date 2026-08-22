@@ -177,3 +177,4 @@ since it's the contract everything else is built against. Once M1 lands, see
 Apache-2.0. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE). The core is, and will remain,
 Apache-2.0; any Enterprise add-ons ship from a separate repository under a separate license —
 see [`docs/adr/003-license-apache-2.md`](./docs/adr/003-license-apache-2.md).
+# ai-app-factory
