@@ -32,10 +32,10 @@
   "devDependencies": {
     "@aiappfactory/company-sdk": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.2.0",
     "@types/pg": "^8.11.0",
-    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.9.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.11"
   }
 }
