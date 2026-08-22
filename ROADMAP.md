@@ -336,7 +336,7 @@ one piece least honest to leave in place — everything else below is still genu
 - [ ] Realm/org provisioning is manual (`createRealm` called once by hand) — no
       "new organization signs up → realm created automatically" flow
 
-## M5 — v0.1 Public Alpha (lightweight slice: infra-only Compose; rest not started)
+## M5 — v0.1 Public Alpha (lightweight slice: infra Compose + one-command quickstart)
 
 Goal per 04_IMPLEMENTATION: GitHub-public, third parties can run the whole thing via
 `docker compose`. Scoped down hard for a first pass — the app processes (`sdk-gateway`,
@@ -360,14 +360,31 @@ genuinely the harder half of M5 still undone, not a rounding error — see the l
     unauthenticated page request → 302 to `/auth/login`) — the same behavior as the self-managed
     local flow, just against compose-provisioned services instead. Torn down cleanly afterward
     (`docker compose down -v`), no state left behind.
+- [x] **`scripts/quickstart.ts` (`pnpm start`)** — a one-command front door, added after actually
+      trying to follow this repo's own setup instructions end to end and finding it still too many
+      manual steps for a first-time reader (copy `.env.example`, hand-invent three passwords,
+      `docker compose up`, then copy those same passwords into four env vars for `pnpm dev:sample`).
+      `pnpm start` collapses all of that: checks Docker is running (clear EN+JA message and exit if
+      not), generates `deploy/compose/.env` with random passwords ONLY if one doesn't already exist
+      (never overwrites a reader's own), brings the stack up via `docker compose up -d --wait`
+      (Postgres/Valkey have defined healthchecks; Keycloak doesn't, so it's polled separately, the
+      same way `dev-server.ts`'s self-managed-Keycloak path already did), then spawns
+      `pnpm dev:sample` with the `AIAF_*` env vars read back out of that `.env` file — the reader
+      never copies a password between two places by hand. Idempotent: verified with two full runs
+      back to back (fresh `.env` generation, then a second run that reused the existing `.env` and
+      the already-provisioned realm/schema instead of redoing anything), both against a real,
+      isolated-port compose stack, both ending in a working `/healthz` → 200 and the real
+      `/auth/login` redirect. `GETTING_STARTED.md`/`GETTING_STARTED.ja.md` and both READMEs lead
+      with this now; the fully manual env-var flow is kept as a documented "if you want more
+      control" fallback, not removed.
 - [ ] **`apps/runtime`/`sdk-gateway` are not packaged as container images** — this is the part of
       M5's own Definition of Done ("third parties can run it via Compose") that's still missing:
       today a third party needs Node + pnpm installed to run the app processes themselves, Compose
       only replaces the infra they'd otherwise install by hand. A Dockerfile (multi-stage pnpm
       monorepo build) plus wiring those services into `docker-compose.yml` is the next step here.
-- [ ] Not GitHub-public yet (private development per the earlier explicit decision to stay private
-      until distributable) — the Compose story above is a prerequisite for that, not the decision
-      itself
+- [x] GitHub-public: the repo went public (`katayama502/ai-app-factory`) after the earlier decision
+      to stay private until distributable; `pnpm start` above is what "distributable" concretely
+      means today.
 - [ ] No release process, versioning, or CHANGELOG — nothing has been tagged as a release
 
 ## M6 — Operations (lightweight slice: Installation Doctor only; rest not started)

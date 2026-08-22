@@ -18,9 +18,11 @@ reference; that guide is the on-ramp.
 > Spec, self-repairing against real validation errors (M2's core loop) — though only tested against
 > a fake model, not a live Claude API call yet — and a Spec passes through a deterministic, signed
 > GREEN/YELLOW/RED Security Gate (M3's Gate 0/2/6 slice) before anything would publish it. The
-> infra a third party needs (Postgres/Valkey/Keycloak) now boots via `docker compose` (M5's infra
-> slice — the app processes themselves still run as host Node commands, not container images), a
-> `pnpm doctor` pre-flight check reports what's missing with Japanese remediation hints (M6's
+> infra a third party needs (Postgres/Valkey/Keycloak) now boots via `docker compose`, and a single
+> `pnpm start` automates the whole setup — passwords, waiting for readiness, launching the demo —
+> with nothing to hand-edit (M5's infra slice; the app processes themselves still run as host Node
+> commands, not container images), a `pnpm doctor` pre-flight check reports what's missing with
+> Japanese remediation hints (M6's
 > slice), and 5 of a planned 10 App Spec templates exist (M7's slice). Against the security threat
 > model's own S-01–S-18 numbering, 9 are covered (traced to their tests, 3 newly added) and 9 are
 > honestly marked not-yet-applicable — no unbuilt feature (M9's slice); archiving an app now
@@ -180,9 +182,21 @@ shipped product.
 
 ### Run via Docker Compose (M5 — no local Postgres/Keycloak install needed)
 
-If you don't want to install Postgres or run Keycloak by hand, `deploy/compose/docker-compose.yml`
-provisions both (plus Valkey) as containers, and `scripts/dev-server.ts` will connect to them
-instead of self-managing its own when pointed at them via env vars:
+The fastest path — no local Postgres/Keycloak install, no files to hand-edit:
+
+```bash
+pnpm start
+```
+
+`scripts/quickstart.ts` checks Docker is running, generates `deploy/compose/.env` with random
+passwords on first run (never overwrites an existing one), brings up Postgres/Valkey/Keycloak via
+`docker compose up -d --wait`, waits for Keycloak specifically (it has no defined healthcheck —
+the other two do), then launches `pnpm dev:sample` with the right `AIAF_*` env vars derived from
+that `.env` automatically. Idempotent — safe to re-run; it reuses whatever's already there. See
+[GETTING_STARTED.md](./GETTING_STARTED.md) for the fully narrated version.
+
+**Want to see/control each step yourself** — set your own passwords, or point at a
+Postgres/Keycloak you're already running elsewhere — do it by hand instead:
 
 ```bash
 cp deploy/compose/.env.example deploy/compose/.env
@@ -196,13 +210,14 @@ AIAF_KEYCLOAK_ADMIN_PASSWORD=<KEYCLOAK_ADMIN_PASSWORD from .env> \
 pnpm dev:sample
 ```
 
-Verified end to end in this repo: brought the compose stack up on isolated ports, confirmed
-Postgres/Valkey report `healthy` and Keycloak's `/realms/master` responds, ran `dev:sample`
-against it, and confirmed both the realm/schema provisioning and an actual HTTP request to the
-runtime (`/healthz` → 200, an unauthenticated page → 302 to `/auth/login`) worked exactly as they
-do against the self-managed local flow. What this does NOT yet do (the harder half of M5's own
-Definition of Done): package `apps/runtime`/`sdk-gateway` themselves as a container image —
-those still run as host Node processes via `pnpm dev:sample`, not inside Compose.
+Both paths verified end to end in this repo: brought the compose stack up on isolated ports (for
+`pnpm start`: including a from-scratch run that generates its own `.env`, and a second run proving
+it reuses that `.env` and the already-provisioned realm/schema instead of redoing anything),
+confirmed Postgres/Valkey report `healthy` and Keycloak's `/realms/master` responds, and confirmed
+an actual HTTP request to the runtime (`/healthz` → 200, an unauthenticated page → 302 to
+`/auth/login`) worked. What neither path does yet (the harder half of M5's own Definition of Done):
+package `apps/runtime`/`sdk-gateway` themselves as a container image — those still run as host
+Node processes via `pnpm dev:sample`, not inside Compose.
 
 ```ts
 import { parseAppSpecYaml } from "@aiappfactory/app-spec";

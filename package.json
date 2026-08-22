@@ -25,6 +25,7 @@
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "dev:sample": "tsx scripts/dev-server.ts",
+    "start": "tsx scripts/quickstart.ts",
     "doctor": "tsx scripts/doctor.ts",
     "sbom": "tsx scripts/sbom.ts"
   },

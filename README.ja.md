@@ -16,8 +16,10 @@ READMEは技術者向けのリファレンスで、ガイドの方が最初の�
 > 生成でき、検証エラーに対して自己修復します（M2のコアループ）——ただし実際のClaude APIではなくフェイクの
 > プロバイダに対してのみ検証済みです。また、SpecはGate 0/2/6と決定論的な署名付きGREEN/YELLOW/RED判定
 > （M3のSecurity Gateスライス）を通過します。第三者に必要なインフラ（Postgres/Valkey/Keycloak）は
-> `docker compose` で起動できるようになり（M5のインフラスライス——アプリ本体はまだホストのNodeプロセスの
-> ままで、コンテナイメージ化はしていません）、`pnpm doctor` で不足要件を日本語の対処法つきで確認でき
+> `docker compose` で起動できるようになり、さらに `pnpm start` 1つでパスワード生成から起動完了まで
+> すべて自動化されました（編集するファイルはありません——M5のインフラスライス——アプリ本体はまだ
+> ホストのNodeプロセスのままで、コンテナイメージ化はしていません）、`pnpm doctor` で不足要件を
+> 日本語の対処法つきで確認でき
 > （M6のスライス）、App Specテンプレートは目標10個のうち5個まで揃いました（M7のスライス）。セキュリティ
 > 脅威モデルのS-01〜S-18のうち9件をテストに対応付け（うち3件は今回新規追加）、残り9件は未実装の機能に
 > 依存するため正直に「未対応」と明記しました。アプリのアーカイブ時にPostgresスキーマ/ロールとKeycloak
@@ -76,9 +78,21 @@ pnpm dev:sample
 
 ### Docker Composeで動かす（M5 — ローカルにPostgres/Keycloakを入れなくてよい）
 
-Postgresを手動インストールしたりKeycloakを自前で起動したくない場合、
-`deploy/compose/docker-compose.yml` がその両方（と Valkey）をコンテナとして用意します。
-`scripts/dev-server.ts` は環境変数でそちらを指定すると、自前でコンテナを管理せずそれらに接続します。
+一番簡単な方法——ファイルを編集する必要はありません：
+
+```bash
+pnpm start
+```
+
+`scripts/quickstart.ts` が、Dockerが起動しているか確認し、初回だけランダムなパスワード入りの
+`deploy/compose/.env` を自動生成し（既存の `.env` は上書きしません）、`docker compose up -d
+--wait` でPostgres/Valkey/Keycloakを起動し（Keycloakだけヘルスチェック定義がないため個別に
+待機します）、そのあと `.env` から導いた `AIAF_*` 環境変数つきで `pnpm dev:sample` を自動的に
+起動します。再実行しても安全です（すでにあるものをそのまま再利用します）。丁寧な説明つきの
+手順は [GETTING_STARTED.ja.md](./GETTING_STARTED.ja.md) を参照してください。
+
+**各ステップを自分の目で見たい・調整したい場合**（自分でパスワードを決めたい、すでに動いている
+Postgres/Keycloakを使いたい、など）は、手動でも実行できます：
 
 ```bash
 cp deploy/compose/.env.example deploy/compose/.env
@@ -92,11 +106,11 @@ AIAF_KEYCLOAK_ADMIN_PASSWORD=<.envのKEYCLOAK_ADMIN_PASSWORD> \
 pnpm dev:sample
 ```
 
-このリポジトリ内で実際に動作確認済みです（ポートを分離した環境でスタックを起動し、
-Postgres/Valkeyが`healthy`になること、Keycloakの`/realms/master`が応答すること、
-`dev:sample`がそれらに対して正常に起動しrealm/schemaを作成すること、
-実際のHTTPリクエスト（`/healthz`→200、未認証ページ→`/auth/login`へ302）が
-ローカル完結フローと同じように動くことまで確認し、その後きれいに片付けました）。
+どちらもこのリポジトリ内で実際に動作確認済みです（`pnpm start` は、`.env` を新規生成する
+初回実行と、既存の `.env` とすでに作成済みのrealm/schemaを再利用する2回目の実行の両方を確認。
+共通して、ポートを分離した環境でスタックを起動し、Postgres/Valkeyが`healthy`になること、
+Keycloakの`/realms/master`が応答すること、実際のHTTPリクエスト（`/healthz`→200、未認証ページ→
+`/auth/login`へ302）が動くことまで確認し、その後きれいに片付けました）。どちらの方法でも
 まだできていないこと（M5本来のDoDのうち、より難しい方の半分）：`apps/runtime`/`sdk-gateway`
 自体をコンテナイメージ化することです——今はまだホストのNodeプロセスとして`pnpm dev:sample`経由で
 動かしており、Compose内では動きません。
