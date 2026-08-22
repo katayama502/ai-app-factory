@@ -1,0 +1,51 @@
+apiVersion: factory.dev/v1
+kind: App
+metadata:
+  id: it-equipment-request
+  name: IT機器貸与申請
+  owner: it-dept
+  tier: T1
+
+data:
+  entities:
+    - name: EquipmentRequest
+      label: 機器貸与申請
+      classification: INTERNAL
+      retention: P3Y
+      fields:
+        - { name: requestDate, type: date, label: 申請日, required: true, default: today }
+        - { name: equipmentType, type: select, label: 機器種別, required: true, options: [ノートPC, モニター, キーボード, マウス, その他] }
+        - { name: justification, type: text, label: 利用理由, maxLength: 1000 }
+        - { name: neededBy, type: date, label: 希望納期 }
+        - { name: status, type: select, label: 状態, required: true, options: [draft, submitted, approved, rejected], default: draft }
+        - { name: requester, type: actor, label: 申請者, system: true }
+
+ui:
+  pages:
+    - { type: form, entity: EquipmentRequest, title: 機器貸与を申請する }
+    - {
+        type: list,
+        entity: EquipmentRequest,
+        columns: [requestDate, equipmentType, status],
+        search: [equipmentType],
+        sort: "-requestDate",
+      }
+    - { type: detail, entity: EquipmentRequest, title: 申請の詳細 }
+
+access:
+  roles:
+    - { role: employee, grants: [create, "read:own", "update:own"] }
+    # IT admin handles every department's requests, not just their own —
+    # deliberately unscoped grants (no rowLevel needed for this role), unlike
+    # expense-request's dept-scoped finance_approver.
+    - { role: it_admin, grants: [read, update, export] }
+  rowLevel:
+    own: "record.requester == ctx.user.id"
+
+automations: []
+
+ai:
+  features: []
+
+network:
+  egress: []

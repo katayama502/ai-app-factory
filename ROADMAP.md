@@ -254,7 +254,7 @@ in-process and still genuinely load-bearing for the T1/T2 tier this platform shi
       `requiresApproval: true` forces a human look rather than silently rejecting a possibly-wrong
       guess). Also accepts an `aiReviewFindings` array as the integration point for a future Gate 7,
       with the MEDIUM cap enforced by `risk-engine`, not re-implemented here. 14 unit tests,
-      including that **all three shipped templates come back GREEN with zero findings** (the
+      including that **every shipped template comes back GREEN with zero findings** (the
       04_IMPLEMENTATION §5 "正常Spec30件、誤検知ゼロ" fixture-testing spirit, in miniature) and that
       an SSRF-shaped internal-IP egress declaration comes back RED via Gate 0.
 - [ ] Gate 1 (OPA/Rego policy engine), Gate 3/4/5 (Trivy/Opengrep — T3-only per 04_IMPLEMENTATION,
@@ -336,13 +336,97 @@ one piece least honest to leave in place — everything else below is still genu
 - [ ] Realm/org provisioning is manual (`createRealm` called once by hand) — no
       "new organization signs up → realm created automatically" flow
 
+## M5 — v0.1 Public Alpha (lightweight slice: infra-only Compose; rest not started)
+
+Goal per 04_IMPLEMENTATION: GitHub-public, third parties can run the whole thing via
+`docker compose`. Scoped down hard for a first pass — the app processes (`sdk-gateway`,
+`apps/runtime`) still run as host Node processes, not container images; only their
+infrastructure dependencies (Postgres, Valkey, Keycloak) are containerized so far. This is
+genuinely the harder half of M5 still undone, not a rounding error — see the last bullet.
+
+- [x] `deploy/compose/docker-compose.yml` now provisions all three infra dependencies —
+      Postgres (`pgvector/pgvector:pg17`), Valkey, and Keycloak (`quay.io/keycloak/keycloak:26.0`,
+      `start-dev`) — with no weak default passwords baked in (`.env.example` requires the operator
+      to set real ones, matching the file's existing OWASP A02 comment). `scripts/dev-server.ts`
+      (`pnpm dev:sample`) now accepts `AIAF_PG_HOST`/`AIAF_PG_PORT`/`AIAF_PG_USER`/
+      `AIAF_PG_PASSWORD`/`AIAF_KEYCLOAK_URL`/`AIAF_KEYCLOAK_ADMIN_PASSWORD` env vars — when
+      `AIAF_KEYCLOAK_URL` is set, it trusts that Keycloak instance instead of self-managing its
+      own `docker run` container, so it can point at the compose-provisioned one.
+  - **Verified end to end, not just that the YAML parses**: brought the compose stack up on
+    isolated host ports (to avoid colliding with this dev machine's own local Postgres on 5432),
+    confirmed Postgres/Valkey report `healthy` and Keycloak's `/realms/master` responds, ran
+    `pnpm dev:sample` against it with the new env vars, and confirmed both the realm/schema
+    provisioning succeeded and an actual HTTP request to the runtime worked (`/healthz` → 200, an
+    unauthenticated page request → 302 to `/auth/login`) — the same behavior as the self-managed
+    local flow, just against compose-provisioned services instead. Torn down cleanly afterward
+    (`docker compose down -v`), no state left behind.
+- [ ] **`apps/runtime`/`sdk-gateway` are not packaged as container images** — this is the part of
+      M5's own Definition of Done ("third parties can run it via Compose") that's still missing:
+      today a third party needs Node + pnpm installed to run the app processes themselves, Compose
+      only replaces the infra they'd otherwise install by hand. A Dockerfile (multi-stage pnpm
+      monorepo build) plus wiring those services into `docker-compose.yml` is the next step here.
+- [ ] Not GitHub-public yet (private development per the earlier explicit decision to stay private
+      until distributable) — the Compose story above is a prerequisite for that, not the decision
+      itself
+- [ ] No release process, versioning, or CHANGELOG — nothing has been tagged as a release
+
+## M6 — Operations (lightweight slice: Installation Doctor only; rest not started)
+
+Goal per 04_IMPLEMENTATION §19 (E6-2 etc.): Setup Wizard, Installation Doctor, monitoring, backup,
+updates, rollback. Scoped down to the one piece that's cheap, self-contained, and immediately
+useful before any of the rest exists: a pre-flight readiness check, matching
+03_REPOSITORY's stated principle **"エラーが出たら次にすべきことを必ず出す"** (when something's wrong, always
+show what to do next) — in Japanese, since that's who E6-2 explicitly calls out.
+
+- [x] `scripts/doctor.ts` (`pnpm doctor`): checks Node/pnpm presence and version, whether Docker's
+      daemon is reachable, total RAM, free disk space on the current volume, and whether the five
+      ports this repo's dev flows bind (Postgres 5432, Valkey 6379, Keycloak 8180, sdk-gateway
+      4100, runtime 4200) are free — printing a ✓/△/✗ per check and a Japanese remediation hint for
+      anything that isn't clean. A port already in use is a warning, not a failure — `pnpm
+      dev:sample` is designed to reuse an existing local Postgres/Keycloak rather than require the
+      ports free, so treating that as fatal would be a false alarm on exactly the setup this repo's
+      own dev flow expects. Verified by hand on this dev machine (correctly reports 5432 in use by
+      the pre-existing local Postgres as a warning, everything else green) and via `tsx` directly
+      to confirm output/exit-code behavior outside of pnpm's own log wrapping.
+- [ ] Setup Wizard (web-based, one-time-token protected) — `packages/setup-guard` (M0) is the
+      *backend* piece this would drive, but there's no web UI calling it
+- [ ] Monitoring, backup, updates, rollback — none started; these need a running deployment to
+      monitor/back up/update in the first place, which doesn't exist yet outside `pnpm dev:sample`
+
+## M7 — Polish & i18n (lightweight slice: 2 more templates; rest not started)
+
+Goal per 04_IMPLEMENTATION: JA/EN UI, 10 App Spec templates, CSV/Excel import, a docs site.
+Scoped down to the cheapest, lowest-risk item — hand-authoring more templates costs nothing
+structurally (each one is just validated by the same `validateAppSpec` and scored by the same
+`security-gate` every other Spec is) and directly grows the "on-ramp for non-code contributions"
+the repo layout already calls `templates/` out as.
+
+- [x] Two new App Spec templates, bringing the total from 3 to 5 (still short of the "10
+      templates" goal — see below): **`templates/it-equipment-request`** (IT機器貸与申請) —
+      deliberately uses an *unscoped* admin role (`it_admin` gets plain `read`/`update`/`export`,
+      no `:dept` grant) rather than every other template's department-scoped approver, since IT
+      support legitimately needs to see every department's requests; and
+      **`templates/vacation-request`** (休暇申請) — a department-scoped approval flow like
+      `expense-request`'s, but a different domain (date-range leave requests, `CONFIDENTIAL`
+      classification since a leave reason like "病欠" can reveal health information). Both pass
+      `app-spec`'s validator and come back GREEN with zero `security-gate` findings — the two test
+      suites that walk `templates/` dynamically (`packages/app-spec/test/templates.test.ts`,
+      `packages/security-gate/test/evaluateSpec.test.ts`) picked them up with no test-file changes
+      needed, and now cover 5 templates instead of 3.
+- [ ] 8 more templates needed to reach the "10 templates" goal
+- [ ] JA/EN UI — there is no Builder/Console UI to localize yet (that's M2's unbuilt E2-8); the
+      *rendered app pages* (`apps/runtime`'s form/list/detail HTML) are effectively JA-first today
+      because every shipped template's labels are Japanese, but nothing about the renderer itself
+      is locale-aware — it just prints whatever string the Spec's `label` field contains
+- [ ] CSV/Excel import — `ui.pages` already has an `import` page *type* in the schema
+      (`sales-daily-report` uses one) but `apps/runtime`'s renderer treats `import` as an
+      unimplemented placeholder (see M1's entry above); no parsing/dry-run logic exists
+- [ ] Docs site — `docs/` is markdown-only, no generated site/search
+
 ## Later milestones (unstarted)
 
 | MS | Name | Goal |
 |---|---|---|
-| M5 | **v0.1 Public Alpha** | GitHub-public, third parties can run it via Compose |
-| M6 | Operations | Setup Wizard, Doctor, monitoring, backup, updates |
-| M7 | Polish & i18n | JA/EN UI, 10 templates, CSV/Excel import, docs site |
 | M8 | **v0.5 Public Beta** | Pilots with 3 real companies |
 | M9 | Hardening | Security tests S-01–S-18, external audit, T3 experimental |
 | M10 | **v1.0 GA** | LTS begins, SBOM + signing, docs complete |

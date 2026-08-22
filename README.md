@@ -5,16 +5,20 @@ runs in your production environment.**
 
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
-> **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice, plus lightweight M0/M2/M3
-> slices.** A hand-written App Spec, with no AI involved, compiles to an isolated Postgres schema
-> and is reachable as a real app in a browser — gated by an actual Keycloak login (Authorization
-> Code + PKCE, BFF pattern), not a dev placeholder: register a record via an HTML form, see it in
-> a list, search it, and have row-level access control hold for different logged-in users. A
-> natural-language description can also generate that same kind of Spec, self-repairing against
-> real validation errors (M2's core loop) — though only tested against a fake model, not a live
-> Claude API call yet — and a Spec passes through a deterministic, signed GREEN/YELLOW/RED
-> Security Gate (M3's Gate 0/2/6 slice) before anything would publish it. None of this is wired
-> into a UI or a publish flow yet — every piece above is a tested library, not a running product.
+> **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice, plus lightweight
+> M0/M2/M3/M5/M6/M7 slices.** A hand-written App Spec, with no AI involved, compiles to an
+> isolated Postgres schema and is reachable as a real app in a browser — gated by an actual
+> Keycloak login (Authorization Code + PKCE, BFF pattern), not a dev placeholder: register a
+> record via an HTML form, see it in a list, search it, and have row-level access control hold for
+> different logged-in users. A natural-language description can also generate that same kind of
+> Spec, self-repairing against real validation errors (M2's core loop) — though only tested against
+> a fake model, not a live Claude API call yet — and a Spec passes through a deterministic, signed
+> GREEN/YELLOW/RED Security Gate (M3's Gate 0/2/6 slice) before anything would publish it. The
+> infra a third party needs (Postgres/Valkey/Keycloak) now boots via `docker compose` (M5's infra
+> slice — the app processes themselves still run as host Node commands, not container images), a
+> `pnpm doctor` pre-flight check reports what's missing with Japanese remediation hints (M6's
+> slice), and 5 of a planned 10 App Spec templates exist (M7's slice). None of this is wired into a
+> UI or a publish flow yet — every piece above is a tested library, not a running product.
 > See [ROADMAP.md](./ROADMAP.md) for the exact state.
 
 ## The idea, in one sentence
@@ -163,6 +167,31 @@ persistent local `aiaf-dev-keycloak` Docker container, each app served from its 
 real SSO, not a mock. A manual convenience script (`scripts/dev-server.ts`), not part of the
 shipped product.
 
+### Run via Docker Compose (M5 — no local Postgres/Keycloak install needed)
+
+If you don't want to install Postgres or run Keycloak by hand, `deploy/compose/docker-compose.yml`
+provisions both (plus Valkey) as containers, and `scripts/dev-server.ts` will connect to them
+instead of self-managing its own when pointed at them via env vars:
+
+```bash
+cp deploy/compose/.env.example deploy/compose/.env
+# edit deploy/compose/.env — set POSTGRES_PASSWORD / VALKEY_PASSWORD / KEYCLOAK_ADMIN_PASSWORD
+docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up -d
+
+AIAF_PG_PASSWORD=<POSTGRES_PASSWORD from .env> \
+AIAF_KEYCLOAK_URL=http://127.0.0.1:8180 \
+AIAF_KEYCLOAK_ADMIN_PASSWORD=<KEYCLOAK_ADMIN_PASSWORD from .env> \
+pnpm dev:sample
+```
+
+Verified end to end in this repo: brought the compose stack up on isolated ports, confirmed
+Postgres/Valkey report `healthy` and Keycloak's `/realms/master` responds, ran `dev:sample`
+against it, and confirmed both the realm/schema provisioning and an actual HTTP request to the
+runtime (`/healthz` → 200, an unauthenticated page → 302 to `/auth/login`) worked exactly as they
+do against the self-managed local flow. What this does NOT yet do (the harder half of M5's own
+Definition of Done): package `apps/runtime`/`sdk-gateway` themselves as a container image —
+those still run as host Node processes via `pnpm dev:sample`, not inside Compose.
+
 ```ts
 import { parseAppSpecYaml } from "@aiappfactory/app-spec";
 import { readFileSync } from "node:fs";
@@ -175,8 +204,10 @@ if (!result.ok) {
 }
 ```
 
-Three worked example Specs live in [`templates/`](./templates/): a sales daily report, an expense
-request flow with an approval role, and a meeting-room booking system with a `reference` field.
+Five worked example Specs live in [`templates/`](./templates/) (M7's early progress toward its
+"10 templates" goal — see ROADMAP.md): a sales daily report, an expense request flow with an
+approval role, a meeting-room booking system with a `reference` field, an IT equipment request
+with an unscoped admin role, and a vacation request with department-scoped manager approval.
 
 ## Architecture Decision Records
 
@@ -190,7 +221,8 @@ Spec model exists at all (ADR-001), why every app gets its own subdomain instead
 See [`ROADMAP.md`](./ROADMAP.md). In short: M0 (this scaffold) → M1 Walking Skeleton (a Spec you
 hand-write turns into a running app with no AI involved) → M2 AI Builder (generate that same kind
 of Spec from a description) → M3 Security Gate (score it GREEN/YELLOW/RED) → M4 Identity & Store →
-... → v0.1 Public Alpha. M0/M2/M3 above are lightweight first slices, not their full scope.
+M5 v0.1 Public Alpha (run it via Compose) → M6 Operations → M7 Polish & i18n → ... → v0.5 Public
+Beta. M0/M2/M3/M5/M6/M7 above are lightweight first slices, not their full scope.
 
 ## Contributing
 

@@ -4,16 +4,20 @@
 
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
-> **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分に加えて、M0/M2/M3の軽量版スライス
-> も完了。** AIを一切介さず手書きした App Specが、分離されたPostgresスキーマにコンパイルされ、実際の
-> Keycloakログイン（Authorization Code + PKCE、BFFパターン）で保護されたブラウザアプリとして動作します
-> ——開発用の仮認証ではありません。HTMLフォームからレコードを登録し、一覧で確認し、検索でき、ログイン
-> ユーザーごとに行レベルのアクセス制御が効きます。自然言語の説明文からも同じ形式のSpecを生成でき、
-> 検証エラーに対して自己修復します（M2のコアループ）——ただし実際のClaude APIではなくフェイクの
+> **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分に加えて、M0/M2/M3/M5/M6/M7の
+> 軽量版スライスも完了。** AIを一切介さず手書きした App Specが、分離されたPostgresスキーマにコンパイル
+> され、実際のKeycloakログイン（Authorization Code + PKCE、BFFパターン）で保護されたブラウザアプリと
+> して動作します——開発用の仮認証ではありません。HTMLフォームからレコードを登録し、一覧で確認し、検索
+> でき、ログインユーザーごとに行レベルのアクセス制御が効きます。自然言語の説明文からも同じ形式のSpecを
+> 生成でき、検証エラーに対して自己修復します（M2のコアループ）——ただし実際のClaude APIではなくフェイクの
 > プロバイダに対してのみ検証済みです。また、SpecはGate 0/2/6と決定論的な署名付きGREEN/YELLOW/RED判定
-> （M3のSecurity Gateスライス）を通過します。いずれもUIや公開フローにはまだ接続されていません——すべて
-> テスト済みのライブラリであって、動く製品ではありません。`pnpm dev:sample` で実際に起動して確認できます
-> （下記）。「今、実際に動くもの」の詳細は [ROADMAP.md](./ROADMAP.md) を参照してください。
+> （M3のSecurity Gateスライス）を通過します。第三者に必要なインフラ（Postgres/Valkey/Keycloak）は
+> `docker compose` で起動できるようになり（M5のインフラスライス——アプリ本体はまだホストのNodeプロセスの
+> ままで、コンテナイメージ化はしていません）、`pnpm doctor` で不足要件を日本語の対処法つきで確認でき
+> （M6のスライス）、App Specテンプレートは目標10個のうち5個まで揃いました（M7のスライス）。いずれも
+> UIや公開フローにはまだ接続されていません——すべてテスト済みのライブラリであって、動く製品ではありません。
+> `pnpm dev:sample` で実際に起動して確認できます（下記）。「今、実際に動くもの」の詳細は
+> [ROADMAP.md](./ROADMAP.md) を参照してください。
 
 ## 一言でいうと
 
@@ -61,7 +65,44 @@ pnpm dev:sample
 ため `/etc/hosts` の編集は不要です）。ログインするとKeycloak本物のログイン画面にリダイレクトされます
 ——モックではありません。手動確認用スクリプト（`scripts/dev-server.ts`）で、製品本体には含まれません。
 
-`templates/` に3つのサンプル Spec（営業日報・経費申請・会議室予約）があります。
+### Docker Composeで動かす（M5 — ローカルにPostgres/Keycloakを入れなくてよい）
+
+Postgresを手動インストールしたりKeycloakを自前で起動したくない場合、
+`deploy/compose/docker-compose.yml` がその両方（と Valkey）をコンテナとして用意します。
+`scripts/dev-server.ts` は環境変数でそちらを指定すると、自前でコンテナを管理せずそれらに接続します。
+
+```bash
+cp deploy/compose/.env.example deploy/compose/.env
+# deploy/compose/.env を編集 — POSTGRES_PASSWORD / VALKEY_PASSWORD / KEYCLOAK_ADMIN_PASSWORD を設定
+docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up -d
+
+AIAF_PG_PASSWORD=<.envのPOSTGRES_PASSWORD> \
+AIAF_KEYCLOAK_URL=http://127.0.0.1:8180 \
+AIAF_KEYCLOAK_ADMIN_PASSWORD=<.envのKEYCLOAK_ADMIN_PASSWORD> \
+pnpm dev:sample
+```
+
+このリポジトリ内で実際に動作確認済みです（ポートを分離した環境でスタックを起動し、
+Postgres/Valkeyが`healthy`になること、Keycloakの`/realms/master`が応答すること、
+`dev:sample`がそれらに対して正常に起動しrealm/schemaを作成すること、
+実際のHTTPリクエスト（`/healthz`→200、未認証ページ→`/auth/login`へ302）が
+ローカル完結フローと同じように動くことまで確認し、その後きれいに片付けました）。
+まだできていないこと（M5本来のDoDのうち、より難しい方の半分）：`apps/runtime`/`sdk-gateway`
+自体をコンテナイメージ化することです——今はまだホストのNodeプロセスとして`pnpm dev:sample`経由で
+動かしており、Compose内では動きません。
+
+### インストール状況を確認する（M6）
+
+```bash
+pnpm doctor
+```
+
+Node/pnpmのバージョン、Dockerデーモンの起動状況、メモリ・ディスク空き容量、
+このリポジトリの開発フローが使うポート（5432/6379/8180/4100/4200）の空き状況を確認し、
+問題があれば日本語の対処法つきで表示します。
+
+`templates/` に5つのサンプル Spec（営業日報・経費申請・会議室予約・IT機器貸与申請・休暇申請）があります
+（M7の「10テンプレート」目標への途中経過 — [ROADMAP.md](./ROADMAP.md) 参照）。
 
 ## ドキュメント
 

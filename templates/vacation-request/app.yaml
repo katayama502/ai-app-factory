@@ -1,0 +1,54 @@
+apiVersion: factory.dev/v1
+kind: App
+metadata:
+  id: vacation-request
+  name: 休暇申請
+  owner: hr-dept
+  tier: T1
+
+data:
+  entities:
+    - name: VacationRequest
+      label: 休暇申請
+      classification: CONFIDENTIAL
+      retention: P3Y
+      fields:
+        - { name: startDate, type: date, label: 開始日, required: true }
+        - { name: endDate, type: date, label: 終了日, required: true }
+        - { name: leaveType, type: select, label: 休暇種別, required: true, options: [有給, 慶弔, 病欠, その他] }
+        - { name: reason, type: text, label: 理由, maxLength: 500 }
+        - { name: status, type: select, label: 状態, required: true, options: [draft, submitted, approved, rejected], default: draft }
+        - { name: requester, type: actor, label: 申請者, system: true }
+
+ui:
+  pages:
+    - { type: form, entity: VacationRequest, title: 休暇を申請する }
+    - {
+        type: list,
+        entity: VacationRequest,
+        columns: [startDate, endDate, leaveType, status],
+        search: [leaveType],
+        sort: "-startDate",
+      }
+    - { type: detail, entity: VacationRequest, title: 申請の詳細 }
+
+access:
+  roles:
+    - { role: employee, grants: [create, "read:own", "update:own"] }
+    - { role: manager, grants: ["read:dept", "update:dept", export] }
+  rowLevel:
+    own: "record.requester == ctx.user.id"
+    dept: "department_of(record.requester) == ctx.user.department"
+
+automations:
+  - id: notifySubmitted
+    trigger: { on: update, entity: VacationRequest }
+    when: 'record.status == "submitted"'
+    actions:
+      - { type: notify, channel: email, to: "role:manager", template: vacation-submitted }
+
+ai:
+  features: []
+
+network:
+  egress: []

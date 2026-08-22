@@ -1,5 +1,8 @@
-# M0 scope only: postgres + valkey. Console/API/Runtime/AI Gateway services are added
-# once M1+ produce runnable service images — see ROADMAP.md.
+# M5 scope: infrastructure dependencies only (postgres + valkey + keycloak) — a third party
+# can `docker compose up -d` this file, then point `pnpm dev:sample` at it (see README's
+# "Run via Docker Compose") to get a working demo app in a browser, no local Postgres/Keycloak
+# install required. Console/API/Runtime/AI Gateway are still run as host processes, not
+# containerized here yet — packaging the app itself as an image is deferred, see ROADMAP.md.
 services:
   postgres:
     image: docker.io/pgvector/pgvector:pg17
@@ -32,6 +35,22 @@ services:
       timeout: 5s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start-dev"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set a strong password in .env}
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    ports:
+      - "127.0.0.1:8180:8080"
+    # No healthcheck here (the keycloak:26 image has no curl/wget) — the app-side
+    # provisioning script (scripts/dev-server.ts) already polls /realms/master before
+    # using it, which is the readiness check that actually matters.
+
 volumes:
   postgres-data:
   valkey-data:
+  keycloak-data:

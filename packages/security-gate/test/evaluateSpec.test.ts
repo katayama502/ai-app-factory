@@ -130,7 +130,7 @@ describe("runSecurityGate — AI review integration point (ADR-008 cap)", () => 
   });
 });
 
-describe("runSecurityGate — the three shipped templates all come back GREEN (04_IMPLEMENTATION §5's fixture-testing spirit, in miniature)", () => {
+describe("runSecurityGate — every shipped template comes back GREEN (04_IMPLEMENTATION §5's fixture-testing spirit, in miniature)", () => {
   const templateNames = readdirSync(templatesDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name);

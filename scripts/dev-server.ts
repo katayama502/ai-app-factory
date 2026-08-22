@@ -1,19 +1,25 @@
 /**
  * Manual local-dev convenience script — NOT part of the shipped product (there is no
  * `deploy-engine` yet; this is the human substitute for it). Boots TWO templates —
- * sales-daily-report and expense-request — against a persistent local Postgres dev
- * database AND a persistent local Keycloak dev container, each app served from its
- * OWN hostname by the same apps/runtime process (ADR-012: per-app origin, not
- * per-app path — see appRegistry.ts) and gated by a REAL Keycloak login (ADR-006).
- * Run with `pnpm dev:sample`.
+ * sales-daily-report and expense-request — against a Postgres dev database AND a
+ * Keycloak realm, each app served from its OWN hostname by the same apps/runtime
+ * process (ADR-012: per-app origin, not per-app path — see appRegistry.ts) and gated
+ * by a REAL Keycloak login (ADR-006). Run with `pnpm dev:sample`.
  *
  * `*.apps.localhost` resolves to loopback automatically on most systems/browsers
  * (RFC 6761) — no `/etc/hosts` edit needed.
  *
- * Requires the same local Postgres superuser as the integration test suites
- * (127.0.0.1:5432, trust-authenticated — see README's "Try it today"), and Docker
- * (for the Keycloak container). Idempotent: safe to re-run — it reuses the Postgres
- * schema/Keycloak realm if they already exist rather than re-provisioning.
+ * Two ways to supply Postgres + Keycloak (see README's "Try it today" / "Run via
+ * Docker Compose"):
+ *   1. Default (no env vars set): a local trust-authenticated Postgres superuser on
+ *      127.0.0.1:5432 (same as the integration test suites) and a self-managed,
+ *      auto-started Docker Keycloak container — this is the original all-local flow.
+ *   2. Compose-backed (M5): `docker compose -f deploy/compose/docker-compose.yml up -d`,
+ *      then set AIAF_PG_PASSWORD / AIAF_KEYCLOAK_URL / AIAF_KEYCLOAK_ADMIN_PASSWORD to
+ *      match `deploy/compose/.env` — this script then connects to those containers
+ *      instead of managing its own, so no local Postgres/Keycloak install is needed.
+ * Idempotent either way: safe to re-run — it reuses the Postgres schema/Keycloak realm
+ * if they already exist rather than re-provisioning.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -38,16 +44,20 @@ import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const PGHOST = "127.0.0.1";
-const PGPORT = 5432;
-const PGUSER = process.env.PG_TEST_SUPERUSER ?? process.env.USER ?? "postgres";
-const DEV_DB = "aiaf_dev";
+const PGHOST = process.env.AIAF_PG_HOST ?? "127.0.0.1";
+const PGPORT = Number(process.env.AIAF_PG_PORT ?? 5432);
+const PGUSER = process.env.AIAF_PG_USER ?? process.env.PG_TEST_SUPERUSER ?? process.env.USER ?? "postgres";
+const PGPASSWORD = process.env.AIAF_PG_PASSWORD; // unset => trust auth (the original local-only flow)
+const DEV_DB = process.env.AIAF_PG_DATABASE ?? "aiaf_dev";
 const APP_ROLE_PASSWORD = "dev-only-not-a-real-secret";
 
 const KC_CONTAINER = "aiaf-dev-keycloak";
 const KC_PORT = 8180;
-const KC_BASE_URL = `http://localhost:${KC_PORT}`;
-const KC_ADMIN_PASSWORD = "admin";
+// If AIAF_KEYCLOAK_URL is set, this script trusts that a Keycloak instance is already
+// running there (e.g. the compose service) and never tries to docker-run its own.
+const KC_BASE_URL = process.env.AIAF_KEYCLOAK_URL ?? `http://localhost:${KC_PORT}`;
+const KC_ADMIN_PASSWORD = process.env.AIAF_KEYCLOAK_ADMIN_PASSWORD ?? "admin";
+const MANAGE_KEYCLOAK_CONTAINER = !process.env.AIAF_KEYCLOAK_URL;
 const REALM = "factory-dev";
 
 // Fixed department UUID — NOT randomUUID(), so re-running this script keeps
@@ -69,7 +79,7 @@ const APPS: TemplateApp[] = [
 const CLIENT_SECRET = "dev-only-not-a-real-secret"; // same for every dev client — fine for local dev, never for a real deployment
 
 async function ensureDatabase(): Promise<void> {
-  const admin = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres" });
+  const admin = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres", ...(PGPASSWORD ? { password: PGPASSWORD } : {}) });
   const { rows } = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [DEV_DB]);
   if (rows.length === 0) {
     await admin.query(`CREATE DATABASE ${quoteIdent(DEV_DB)}`);
@@ -111,28 +121,32 @@ function containerStatus(): "running" | "stopped" | "missing" {
 }
 
 async function ensureKeycloak(): Promise<void> {
-  const status = containerStatus();
-  if (status === "missing") {
-    execFileSync("docker", [
-      "run",
-      "-d",
-      "--name",
-      KC_CONTAINER,
-      "-p",
-      `${KC_PORT}:8080`,
-      "-e",
-      "KC_BOOTSTRAP_ADMIN_USERNAME=admin",
-      "-e",
-      `KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}`,
-      "quay.io/keycloak/keycloak:26.0",
-      "start-dev",
-    ]);
-    console.log(`started Keycloak container "${KC_CONTAINER}"`);
-  } else if (status === "stopped") {
-    execFileSync("docker", ["start", KC_CONTAINER]);
-    console.log(`restarted existing Keycloak container "${KC_CONTAINER}"`);
+  if (MANAGE_KEYCLOAK_CONTAINER) {
+    const status = containerStatus();
+    if (status === "missing") {
+      execFileSync("docker", [
+        "run",
+        "-d",
+        "--name",
+        KC_CONTAINER,
+        "-p",
+        `${KC_PORT}:8080`,
+        "-e",
+        "KC_BOOTSTRAP_ADMIN_USERNAME=admin",
+        "-e",
+        `KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}`,
+        "quay.io/keycloak/keycloak:26.0",
+        "start-dev",
+      ]);
+      console.log(`started Keycloak container "${KC_CONTAINER}"`);
+    } else if (status === "stopped") {
+      execFileSync("docker", ["start", KC_CONTAINER]);
+      console.log(`restarted existing Keycloak container "${KC_CONTAINER}"`);
+    } else {
+      console.log(`Keycloak container "${KC_CONTAINER}" already running`);
+    }
   } else {
-    console.log(`Keycloak container "${KC_CONTAINER}" already running`);
+    console.log(`using externally-managed Keycloak at ${KC_BASE_URL} (AIAF_KEYCLOAK_URL set)`);
   }
 
   for (let i = 0; i < 60; i++) {
@@ -157,7 +171,7 @@ async function realmExists(admin: KeycloakAdminClient): Promise<boolean> {
 
 async function main(): Promise<void> {
   await ensureDatabase();
-  const adminPool = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: DEV_DB });
+  const adminPool = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: DEV_DB, ...(PGPASSWORD ? { password: PGPASSWORD } : {}) });
   await applyPlatformBootstrap(adminPool);
   await adminPool.query(`INSERT INTO public.departments (id) VALUES ($1) ON CONFLICT DO NOTHING`, [DEPT_SALES]);
 
