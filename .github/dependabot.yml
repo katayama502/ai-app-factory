@@ -10,6 +10,15 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # typescript-eslint doesn't support TS 7.x yet (confirmed 2026-08:
+      # "Error: typescript-eslint does not support TS 7.0" — breaks `pnpm lint`
+      # in every package). Tracked at
+      # https://github.com/typescript-eslint/typescript-eslint/issues/10940 —
+      # remove this once it's resolved; until then, a major-version PR here is
+      # unmergeable and just clutters the branch list every week.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
