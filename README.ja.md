@@ -4,12 +4,16 @@
 
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
-> **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分も完了。** AIを一切介さず手書きした
-> App Specが、分離されたPostgresスキーマにコンパイルされ、実際のKeycloakログイン（Authorization Code +
-> PKCE、BFFパターン）で保護されたブラウザアプリとして動作します——開発用の仮認証ではありません。HTMLフォーム
-> からレコードを登録し、一覧で確認し、検索でき、ログインユーザーごとに行レベルのアクセス制御が効きます。
-> `pnpm dev:sample` で実際に起動して確認できます（下記）。AI Builder・Security Gate はまだ未着手です。
-> 「今、実際に動くもの」の詳細は [ROADMAP.md](./ROADMAP.md) を参照してください。
+> **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分に加えて、M0/M2/M3の軽量版スライス
+> も完了。** AIを一切介さず手書きした App Specが、分離されたPostgresスキーマにコンパイルされ、実際の
+> Keycloakログイン（Authorization Code + PKCE、BFFパターン）で保護されたブラウザアプリとして動作します
+> ——開発用の仮認証ではありません。HTMLフォームからレコードを登録し、一覧で確認し、検索でき、ログイン
+> ユーザーごとに行レベルのアクセス制御が効きます。自然言語の説明文からも同じ形式のSpecを生成でき、
+> 検証エラーに対して自己修復します（M2のコアループ）——ただし実際のClaude APIではなくフェイクの
+> プロバイダに対してのみ検証済みです。また、SpecはGate 0/2/6と決定論的な署名付きGREEN/YELLOW/RED判定
+> （M3のSecurity Gateスライス）を通過します。いずれもUIや公開フローにはまだ接続されていません——すべて
+> テスト済みのライブラリであって、動く製品ではありません。`pnpm dev:sample` で実際に起動して確認できます
+> （下記）。「今、実際に動くもの」の詳細は [ROADMAP.md](./ROADMAP.md) を参照してください。
 
 ## 一言でいうと
 
@@ -34,12 +38,13 @@ pnpm --filter @aiappfactory/spec-compiler test:integration  # ローカルPostgr
 pnpm --filter @aiappfactory/sdk-gateway test:integration
 pnpm --filter @aiappfactory/auth-bff test:integration       # Dockerが必要（Keycloakを自動起動）
 pnpm --filter @aiappfactory/runtime test:integration        # 両方必要
+pnpm --filter @aiappfactory/setup-guard test:integration    # Dockerが必要（Keycloakを自動起動）
 ```
 
 Postgres系の統合テストは `127.0.0.1:5432` の Postgres スーパーユーザーに接続します（`brew install
 postgresql@14` を想定）。それぞれ使い捨てのデータベースとロールを作成し、成功・失敗にかかわらず
 `afterAll` で必ず削除します。Keycloak系の統合テストはDockerが必要で、使い捨てのKeycloakコンテナを
-自前で起動・削除します。4つとも CI（`.github/workflows/ci.yml` の `integration` ジョブ）に組み込み済みです。
+自前で起動・削除します。5つとも CI（`.github/workflows/ci.yml` の `integration` ジョブ）に組み込み済みです。
 
 実際にブラウザで触ってみるには：
 

@@ -5,13 +5,17 @@ runs in your production environment.**
 
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
-> **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice.** A hand-written App Spec,
-> with no AI involved, compiles to an isolated Postgres schema and is reachable as a real app in
-> a browser — gated by an actual Keycloak login (Authorization Code + PKCE, BFF pattern), not a
-> dev placeholder: register a record via an HTML form, see it in a list, search it, and have
-> row-level access control hold for different logged-in users. The AI Builder and Security Gate
-> described below are still the plan, not running code. See [ROADMAP.md](./ROADMAP.md) for the
-> exact state.
+> **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice, plus lightweight M0/M2/M3
+> slices.** A hand-written App Spec, with no AI involved, compiles to an isolated Postgres schema
+> and is reachable as a real app in a browser — gated by an actual Keycloak login (Authorization
+> Code + PKCE, BFF pattern), not a dev placeholder: register a record via an HTML form, see it in
+> a list, search it, and have row-level access control hold for different logged-in users. A
+> natural-language description can also generate that same kind of Spec, self-repairing against
+> real validation errors (M2's core loop) — though only tested against a fake model, not a live
+> Claude API call yet — and a Spec passes through a deterministic, signed GREEN/YELLOW/RED
+> Security Gate (M3's Gate 0/2/6 slice) before anything would publish it. None of this is wired
+> into a UI or a publish flow yet — every piece above is a tested library, not a running product.
+> See [ROADMAP.md](./ROADMAP.md) for the exact state.
 
 ## The idea, in one sentence
 
@@ -63,7 +67,11 @@ packages/spec-compiler/ Spec → PostgreSQL DDL/RLS (ADR-007) — includes a rea
 packages/company-sdk/   The only API app code may use to touch data — an HTTP client over sdk-gateway
 packages/auth-bff/      OIDC Authorization Code + PKCE, BFF pattern (ADR-006) — real Keycloak login, no tokens in the browser
 packages/keycloak-admin/ Realm/client/role/user provisioning over Keycloak's Admin REST API
-packages/...            risk-engine, scanners, audit, db, ui, i18n (not started)
+packages/setup-guard/   One-time token gate for initial admin creation (T-08) — real Keycloak, self-disabling
+packages/risk-engine/   Deterministic GREEN/YELLOW/RED scoring + Ed25519 signing (ADR-008)
+packages/security-gate/ Gate 0/2/6 (structural validation, secret scan, PII heuristic) — Gates 1/3-5/7-9 not started
+packages/ai-core/       Natural language → App Spec via a validate/self-repair loop (E2-6/E2-7) — real provider unverified live
+packages/...            scanners, audit, db, ui, i18n (not started)
 policies/               Default Rego policies (Gate 1) (not started)
 templates/              App Spec templates, ready to run — the on-ramp for non-code contributions
 docs/adr/               Architecture Decision Records
@@ -74,9 +82,10 @@ full target layout and OSS governance model.
 
 ## Try it today
 
-Eight packages are real, tested code so far — enough to log in through an actual Keycloak login
-page, register a record through an HTML form, and see row-level access control hold for
-different logged-in users, with no AI in the loop yet:
+Twelve packages are real, tested code so far — enough to log in through an actual Keycloak login
+page, register a record through an HTML form, see row-level access control hold for different
+logged-in users, generate that same kind of Spec from a plain-language description, and run it
+through a deterministic, signed security verdict — with no UI or publish flow wired up yet:
 
 - **`packages/app-spec`** validates App Specs and enforces referential-integrity and
   security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
@@ -98,11 +107,27 @@ different logged-in users, with no AI in the loop yet:
   apps can be served by one Runtime process, each on its own hostname (ADR-012) and its own OIDC
   client (ADR-006) — resolved from the request's Host header, never a URL path segment — with
   per-response origin-isolation headers (COOP/CORP/X-Frame-Options/CSP).
+- **`packages/setup-guard`** gates a `/setup` endpoint with a one-time, scrypt-hashed token —
+  creates the real initial admin via `keycloak-admin`, then permanently disables itself, even for
+  the original valid token.
+- **`packages/risk-engine`** turns a `Finding[]` into a deterministic GREEN/YELLOW/RED verdict
+  (severity-weighted scoring, ADR-008) and Ed25519-signs it — a tampered verdict fails
+  verification.
+- **`packages/security-gate`** runs a Spec through Gate 0 (structural validation — already
+  `app-spec`'s own validator), Gate 2 (regex secret scanning), and a Gate 6 PII heuristic, then
+  scores the result with `risk-engine`.
+- **`packages/ai-core`** turns a plain-language description into a validated App Spec:
+  `generateAppSpec()` calls an `LlmProvider`, validates the result through the exact same
+  `validateAppSpec` a hand-written Spec goes through, and on failure feeds the validation issues
+  back for up to 3 self-repair attempts. Tested against a deterministic `FakeProvider`; the real
+  `AnthropicProvider` is implemented but not yet exercised against a live API call (no key in this
+  dev environment).
 
-All five integration suites (spec-compiler, sdk-gateway, auth-bff, runtime) apply real requests
-to a real Postgres server and/or a real, freshly-provisioned Keycloak and prove the whole thing
-actually holds end to end — auth-bff's and runtime's drive the *actual* Keycloak-hosted login
-form, not a mock — not just that the generated SQL or the OIDC plumbing looks right on paper.
+All five integration suites (spec-compiler, sdk-gateway, auth-bff, runtime, setup-guard) apply
+real requests to a real Postgres server and/or a real, freshly-provisioned Keycloak and prove the
+whole thing actually holds end to end — auth-bff's, runtime's, and setup-guard's drive the
+*actual* Keycloak-hosted login form or a real admin creation, not a mock — not just that the
+generated SQL or the OIDC plumbing looks right on paper.
 
 ```bash
 pnpm install
@@ -112,6 +137,7 @@ pnpm --filter @aiappfactory/spec-compiler test:integration # needs a local Postg
 pnpm --filter @aiappfactory/sdk-gateway test:integration
 pnpm --filter @aiappfactory/auth-bff test:integration      # needs Docker — spins up its own Keycloak
 pnpm --filter @aiappfactory/runtime test:integration       # needs both
+pnpm --filter @aiappfactory/setup-guard test:integration   # needs Docker — spins up its own Keycloak
 ```
 
 The Postgres-backed suites expect a reachable Postgres superuser at `127.0.0.1:5432` (this
@@ -162,8 +188,9 @@ Spec model exists at all (ADR-001), why every app gets its own subdomain instead
 ## Roadmap
 
 See [`ROADMAP.md`](./ROADMAP.md). In short: M0 (this scaffold) → M1 Walking Skeleton (a Spec you
-hand-write turns into a running app with no AI involved) → M2 AI Builder → M3 Security Gate → ...
-→ v0.1 Public Alpha.
+hand-write turns into a running app with no AI involved) → M2 AI Builder (generate that same kind
+of Spec from a description) → M3 Security Gate (score it GREEN/YELLOW/RED) → M4 Identity & Store →
+... → v0.1 Public Alpha. M0/M2/M3 above are lightweight first slices, not their full scope.
 
 ## Contributing
 

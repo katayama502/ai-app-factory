@@ -170,6 +170,61 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
 **M1 is functionally complete.** Every checkbox above is done; nothing on this milestone's own
 Definition of Done is outstanding.
 
+## M2 — AI Builder (lightweight slice: Spec generation + self-repair; rest not started)
+
+Goal per 04_IMPLEMENTATION §4: natural language → Spec generation, a Builder UI, preview,
+conversational editing (template diff / JSON Patch), a requirement-elicitation multi-turn flow,
+template vector search, and an evaluation set. Scoped down hard for a first pass — no UI, no
+conversational editing, no multi-turn elicitation; just the core generate/validate/self-repair loop
+(E2-6/E2-7), because everything else in this milestone is built *on top of* that loop rather than
+alongside it.
+
+- [x] `packages/app-spec`: `getAppSpecJsonSchema()` derives a JSON Schema from `appSpecSchema` via
+      Zod v4's native `z.toJSONSchema()` — the same Zod schema that's already the single source of
+      truth for `validateAppSpec`, not a second hand-maintained schema that could drift from it.
+      This only needs to shape the model's *first* attempt; the business-logic constraints Zod's
+      `superRefine` enforces (cross-field rules JSON Schema can't express) still run exclusively
+      through `validateAppSpec` on every attempt, generated or hand-written alike. 3 unit tests
+      (expected top-level keys, caching, JSON-serializability).
+- [x] `packages/ai-core`: `generateAppSpec(description, provider, options?)` — the self-repair loop
+      itself (E2-7: "検証エラー → 再生成、最大3回"). A model's output is NEVER trusted directly: every
+      attempt, including repairs, goes through the exact same `validateAppSpec` a hand-written Spec
+      does (this is Gate 0 — see `@aiappfactory/security-gate`, M3 above) before being accepted.
+      A failed attempt's exact validation issues are fed back verbatim in the next prompt, alongside
+      the full prior (invalid) attempt, so the model fixes a known-bad draft rather than re-rolling
+      blind. After `maxAttempts` (default 3) failed attempts, returns the last set of issues instead
+      of looping forever or silently accepting something invalid.
+  - **`LlmProvider`**: a minimal abstraction (`generateStructured({systemPrompt, userPrompt,
+    jsonSchema, toolName}) => Promise<unknown>`) so the retry loop's logic is provider-agnostic.
+    `FakeProvider` is a deterministic test double (queued responses, call-history inspection) used
+    for all of this milestone's own tests. `AnthropicProvider` is the real implementation — Claude's
+    strict tool use (`strict: true` + a forced `tool_choice`) against the JSON Schema from
+    `app-spec`, model defaults to `claude-opus-5`, checks for `stop_reason === "refusal"` before
+    extracting the tool call. **Not exercised against a real Claude API call anywhere in this repo's
+    test suite** — there is no `ANTHROPIC_API_KEY` in this development environment. `specGenerator`'s
+    actual retry/validation logic is fully verified against `FakeProvider` instead (first-attempt
+    success, recovery after an invalid first attempt with the repair prompt inspected via
+    `callHistory()` to confirm it carries the prior attempt + issues, exhausting all attempts and
+    returning `ok: false`, a custom `maxAttempts`) — 5 unit tests. `AnthropicProvider` is real,
+    typechecked code ready for a key, not yet proven against the live API.
+  - **`prompt.ts`**: the system prompt teaches grammar rules the JSON Schema alone can't express —
+    naming conventions (kebab-case ids, PascalCase entities, camelCase fields, snake_case roles),
+    the reserved-word list, the `actor` field's `system: true` requirement, the restricted
+    `rowLevel` (ADR-011) and computed-field (ADR-010) expression grammars with worked examples, and
+    the SSRF-relevant egress rule. Getting this prompt slightly wrong only costs an extra
+    self-repair round-trip, not a safety gap — nothing it gets wrong can reach a compiled app
+    without passing the same validator a hand-written Spec goes through.
+- [ ] Builder UI (E2-8) — no UI at all; `generateAppSpec` is a library function today, nothing
+      calls it from an HTTP endpoint or a browser
+- [ ] Conversational editing via template diff / JSON Patch (E2-10) — not built; every generation
+      is a fresh Spec, there's no "edit the existing one" flow
+- [ ] Multi-turn requirement elicitation (E2-4) — not built; `generateAppSpec` takes one description
+      string and produces one Spec, no clarifying-question round-trip
+- [ ] Template vector search (E2-5) — not built; nothing retrieves a similar existing template to
+      ground generation
+- [ ] Evaluation set (E2-11) — not built; no fixture corpus of descriptions → expected Specs to
+      regression-test generation quality against
+
 ## M3 — Security Gate (lightweight slice: Gate 0/2/6 + Risk Engine; rest not started)
 
 Goal per 04_IMPLEMENTATION §5: Gates 0/1/2/6/7/8/9, a deterministic Risk Engine, Auto Fix, an
@@ -285,7 +340,6 @@ one piece least honest to leave in place — everything else below is still genu
 
 | MS | Name | Goal |
 |---|---|---|
-| M2 | AI Builder | Natural language → Spec generation → preview → conversational editing |
 | M5 | **v0.1 Public Alpha** | GitHub-public, third parties can run it via Compose |
 | M6 | Operations | Setup Wizard, Doctor, monitoring, backup, updates |
 | M7 | Polish & i18n | JA/EN UI, 10 templates, CSV/Excel import, docs site |

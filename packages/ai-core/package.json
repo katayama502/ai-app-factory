@@ -1,0 +1,34 @@
+{
+  "name": "@aiappfactory/ai-core",
+  "version": "0.1.0",
+  "description": "Natural language -> App Spec generation with a validate/self-repair loop (04_IMPLEMENTATION E2-6/E2-7). The model only ever emits a T1/T2 Spec via a strict structured-output tool call — never arbitrary code (ADR-001) — and @aiappfactory/app-spec's validator, not the model, is the final word on whether the result is acceptable.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@aiappfactory/app-spec": "workspace:*",
+    "@anthropic-ai/sdk": "^0.120.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}
