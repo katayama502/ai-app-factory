@@ -1,0 +1,34 @@
+{
+  "name": "@aiappfactory/security-gate",
+  "version": "0.1.0",
+  "description": "Runs the T1/T2 gate set over an App Spec (02_SECURITY §4.2) and hands the resulting findings to @aiappfactory/risk-engine for a signed verdict. Gate 0 (structural validation) already does most of the work for this generation tier by construction (ADR-001) — this package adds Gate 2 (secret patterns) and a Gate 6 heuristic (under-classified PII), the two gates cheap enough to run with no external services.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/risk-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

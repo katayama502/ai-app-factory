@@ -1,0 +1,30 @@
+{
+  "name": "@aiappfactory/risk-engine",
+  "version": "0.1.0",
+  "description": "Deterministic GREEN/YELLOW/RED scoring over a set of security findings, Ed25519-signed (ADR-008). AI review may only ever ADD findings — this package has no code path that lets anything upgrade a verdict, by construction.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -192,6 +192,65 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/risk-engine:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.0
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1))
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/security-gate:
+    dependencies:
+      '@aiappfactory/app-spec':
+        specifier: workspace:*
+        version: link:../app-spec
+      '@aiappfactory/risk-engine':
+        specifier: workspace:*
+        version: link:../risk-engine
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.0
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1))
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/setup-guard:
+    dependencies:
+      fastify:
+        specifier: ^5.1.0
+        version: 5.12.1
+    devDependencies:
+      '@aiappfactory/keycloak-admin':
+        specifier: workspace:*
+        version: link:../keycloak-admin
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.0
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1))
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
   packages/spec-compiler:
     dependencies:
       '@aiappfactory/app-spec':

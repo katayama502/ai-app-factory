@@ -1,0 +1,35 @@
+{
+  "name": "@aiappfactory/setup-guard",
+  "version": "0.1.0",
+  "description": "T-08 mitigation (04_IMPLEMENTATION §2): a one-time setup token gating first-boot admin creation, required no matter what a public instance's HTTP-level access controls end up being, and disabled forever once setup completes.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:integration": "vitest run test/integration",
+    "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
+  },
+  "dependencies": {
+    "fastify": "^5.1.0"
+  },
+  "devDependencies": {
+    "@aiappfactory/keycloak-admin": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

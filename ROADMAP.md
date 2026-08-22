@@ -20,8 +20,21 @@ protection + initial admin creation.
 - [x] README (EN primary + JA), LICENSE (Apache-2.0), NOTICE, CONTRIBUTING, SECURITY,
       CODE_OF_CONDUCT
 - [ ] `docker-compose.yml` (postgres + valkey only) — scaffolded, not yet run end-to-end
-- [ ] Setup token protection + initial admin creation (T-08) — **not started**; this is the one
-      M0 item that blocks a public Alpha and must not slip to M6
+- [x] Setup token protection + initial admin creation (T-08): `packages/setup-guard`. A one-time
+      token (generated server-side, only ever handed to the operator once, persisted only as a
+      scrypt hash) gates a `/setup` endpoint that creates the real initial admin — via
+      `@aiappfactory/keycloak-admin`, not a mock — then disables itself permanently, even for the
+      original valid token. A loopback-only check (defense in depth beyond whatever the process's
+      own bind address is) rejects any non-`127.0.0.1`/`::1` request before the token is even
+      checked. If admin creation itself fails partway, setup deliberately stays open for a retry
+      instead of permanently locking the operator out. 14 unit tests (Fastify `inject()`, including
+      spoofed remote addresses) + a 2-test integration suite that completes setup against a real
+      Keycloak and then actually logs in as the created account to confirm it's real and carries
+      the right role — not just that the HTTP call returned 200. State is a single JSON file (a
+      placeholder for a Control Plane DB row — `packages/db`, not built), so it survives a process
+      restart before an operator gets to it. Not yet wired into any real service's boot sequence
+      (there's no Console/Factory API process to mount it on yet) — it's a tested, reusable
+      library today, not a running default-deny gate on anything.
 
 ## M1 — Walking Skeleton (complete)
 
@@ -157,6 +170,49 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
 **M1 is functionally complete.** Every checkbox above is done; nothing on this milestone's own
 Definition of Done is outstanding.
 
+## M3 — Security Gate (lightweight slice: Gate 0/2/6 + Risk Engine; rest not started)
+
+Goal per 04_IMPLEMENTATION §5: Gates 0/1/2/6/7/8/9, a deterministic Risk Engine, Auto Fix, an
+escalation UI, and a full approval flow. Scoped down hard for a first pass — no OPA/Rego, no
+external scanner binaries, no AI Review, no dynamic sandbox execution; just what's cheap to run
+in-process and still genuinely load-bearing for the T1/T2 tier this platform ships today.
+
+- [x] `packages/risk-engine`: deterministic GREEN/YELLOW/RED scoring over a `Finding[]` (severity
+      × point value, any CRITICAL or a cumulative score ≥100 forces RED, ≥10 forces YELLOW,
+      `requiresApproval` forces at least YELLOW regardless of score) plus Ed25519 signing (ADR-008).
+      The MEDIUM-severity cap on `source: "ai-review"` findings is enforced by *throwing* if a
+      caller mistags one above MEDIUM — not a convention callers have to remember, a function that
+      refuses to score a Spec that violates it. Signature verification deliberately takes the
+      public key as a caller-supplied argument, never as a field on the signed payload itself — a
+      payload that carries its own verification key proves nothing (anyone can re-sign with their
+      own keypair and bundle their own key). 16 unit tests, including that a tampered verdict
+      (RED silently rewritten to GREEN post-signing) fails verification.
+- [x] `packages/security-gate`: runs Gate 0 (already *is* `@aiappfactory/app-spec`'s validator —
+      the Constrained App Model, ADR-001, means most of what a traditional Gate 0 would need to
+      check is already structurally unrepresentable in the grammar for T1/T2) as a hard block —
+      an invalid Spec short-circuits straight to RED without running the other gates on garbage.
+      A valid Spec proceeds through two new, cheap, in-process gates: Gate 2 (regex scan for
+      accidentally-pasted credentials — AWS keys, private key blocks, GitHub/Slack tokens — over
+      the Spec's raw source text, not the external `gitleaks` binary `security.yml` already
+      references) and a Gate 6 heuristic (EN+JA PII keyword dictionary flagging a field that looks
+      like personal data on an entity classified below PERSONAL — advisory, not a hard block:
+      `requiresApproval: true` forces a human look rather than silently rejecting a possibly-wrong
+      guess). Also accepts an `aiReviewFindings` array as the integration point for a future Gate 7,
+      with the MEDIUM cap enforced by `risk-engine`, not re-implemented here. 14 unit tests,
+      including that **all three shipped templates come back GREEN with zero findings** (the
+      04_IMPLEMENTATION §5 "正常Spec30件、誤検知ゼロ" fixture-testing spirit, in miniature) and that
+      an SSRF-shaped internal-IP egress declaration comes back RED via Gate 0.
+- [ ] Gate 1 (OPA/Rego policy engine), Gate 3/4/5 (Trivy/Opengrep — T3-only per 04_IMPLEMENTATION,
+      not relevant while T3 doesn't exist), Gate 7 (actual AI Review — the integration point
+      exists, nothing calls it yet), Gate 8 (dynamic egress observation — needs a running
+      container to observe), Gate 9 (Spec → acceptance test generation) — none built
+- [ ] Auto Fix loop, escalation UI, and the YELLOW → Approver → publish approval flow — none built;
+      `security-gate` today returns a verdict, nothing acts on it
+- [ ] The 20-dangerous/30-safe Spec fixture suite (04_IMPLEMENTATION §5 E3-13) — only a few
+      illustrative cases exist as inline test fixtures, not the full regression suite
+- [ ] Not wired into any publish flow — like `setup-guard`, this is tested reusable code with
+      nothing calling it yet, since there's no deploy-engine/publish flow to call it from
+
 ## M4 — Identity & Store (Keycloak login slice done; rest not started)
 
 Goal per 04_IMPLEMENTATION §6: Keycloak integration, user/department/role management UI, Spec
@@ -230,7 +286,6 @@ one piece least honest to leave in place — everything else below is still genu
 | MS | Name | Goal |
 |---|---|---|
 | M2 | AI Builder | Natural language → Spec generation → preview → conversational editing |
-| M3 | Security Gate | Gates 0/1/2/6/7/8/9 + Risk Engine + Auto Fix + approval flow |
 | M5 | **v0.1 Public Alpha** | GitHub-public, third parties can run it via Compose |
 | M6 | Operations | Setup Wizard, Doctor, monitoring, backup, updates |
 | M7 | Polish & i18n | JA/EN UI, 10 templates, CSV/Excel import, docs site |
