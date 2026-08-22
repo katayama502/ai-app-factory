@@ -73,3 +73,4 @@ jobs:
       # Docker available by default, no extra setup needed.
       - run: pnpm --filter @aiappfactory/auth-bff test:integration
       - run: pnpm --filter @aiappfactory/runtime test:integration
+      - run: pnpm --filter @aiappfactory/setup-guard test:integration
