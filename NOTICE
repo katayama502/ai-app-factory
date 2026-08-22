@@ -2,25 +2,37 @@ AI App Factory Community Edition
 Copyright 2026 AI App Factory Contributors
 
 This product includes software developed as part of the AI App Factory project
-(https://github.com/<org>/ai-app-factory).
+(https://github.com/katayama502/ai-app-factory).
 
-This distribution bundles or depends on third-party open-source software. A full,
-machine-generated attribution list (from `license-checker`) is published with every
-release as `THIRD-PARTY-NOTICES.md`. Notably:
+This distribution bundles or depends on third-party open-source software. No tagged release
+exists yet (see ROADMAP.md), so there is no `THIRD-PARTY-NOTICES.md` to publish yet either — a
+full, machine-generated attribution list (via `license-checker`) is planned to accompany the
+first real release, once one exists. `pnpm sbom` (see README) already generates a machine-readable
+inventory of every currently-resolved npm dependency with its license, which is a reasonable
+substitute until then.
+
+Actually integrated and running today (see README's "Try it today"):
 
   - Keycloak (Apache-2.0)      — Identity Provider
-  - Gitea (MIT)                — Spec version history (from M6; bare-repo v0.1, ADR-009)
   - PostgreSQL (PostgreSQL License) + pgvector (PostgreSQL License)
-  - Traefik (MIT)              — Reverse proxy / TLS termination
-  - Zot (Apache-2.0)           — OCI registry
-  - Valkey (BSD-3-Clause)      — Queue / cache
-  - Ollama (MIT)                — Local LLM runtime
-  - gitleaks (MIT)              — Secret scanning
-  - Opengrep (LGPL-2.1)         — SAST, invoked as a separate process, not linked
-  - Trivy (Apache-2.0)          — Dependency / container / IaC scanning
+  - Valkey (BSD-3-Clause)      — planned queue/cache; provisioned in `deploy/compose/` but nothing
+                                   uses it yet
+
+Planned per the design docs, NOT yet integrated into this codebase (listed here so their license
+compatibility is already on record before they're added, not as a claim that they're bundled now):
+
+  - Gitea (MIT)                 — Spec version history (M6, ADR-009)
+  - Traefik (MIT)                — Reverse proxy / TLS termination
+  - Zot (Apache-2.0)             — OCI registry
+  - Ollama (MIT)                 — Local LLM runtime
+  - Opengrep (LGPL-2.1)           — SAST, to be invoked as a separate process, not linked
   - OSV.dev (code: Apache-2.0, data: CC-BY-4.0) — Vulnerability database
-  - OPA (Apache-2.0)            — Policy engine
+  - OPA (Apache-2.0)              — Policy engine
+
+gitleaks (MIT) and Trivy (Apache-2.0) already run today, but as CI Actions
+(`.github/workflows/security.yml`) that scan this repository — not as software bundled into the
+shipped product, which is what this NOTICE file itself covers.
 
 See 03_REPOSITORY_リポジトリ構成とOSS運営.md §2.3 and §3.4 for the license-compatibility
-rationale, and the CI-enforced denylist (AGPL / SSPL / Sustainable Use License / BSL) that
-keeps incompatible dependencies out of the bundled distribution.
+rationale. A CI-enforced license denylist (AGPL / SSPL / Sustainable Use License / BSL) is
+planned but not built yet — see the comment at the bottom of `security.yml`.

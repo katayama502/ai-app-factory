@@ -5,6 +5,10 @@ runs in your production environment.**
 
 [日本語 README](./README.ja.md) · [Architecture](./docs/) · [Roadmap](./ROADMAP.md) · [Security Model](./SECURITY.md)
 
+**New here, or not a developer?** Start with **[GETTING_STARTED.md](./GETTING_STARTED.md)** — a
+plain-language, step-by-step guide with no assumed background. This README is the technical
+reference; that guide is the on-ramp.
+
 > **Status: M1 "Walking Skeleton" complete, plus M4's real-auth slice, plus lightweight
 > M0/M2/M3/M5/M6/M7/M9/M10 slices.** A hand-written App Spec, with no AI involved, compiles to an
 > isolated Postgres schema and is reachable as a real app in a browser — gated by an actual
@@ -185,6 +189,7 @@ cp deploy/compose/.env.example deploy/compose/.env
 # edit deploy/compose/.env — set POSTGRES_PASSWORD / VALKEY_PASSWORD / KEYCLOAK_ADMIN_PASSWORD
 docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up -d
 
+AIAF_PG_USER=<POSTGRES_USER from .env, "factory" if you didn't change it> \
 AIAF_PG_PASSWORD=<POSTGRES_PASSWORD from .env> \
 AIAF_KEYCLOAK_URL=http://127.0.0.1:8180 \
 AIAF_KEYCLOAK_ADMIN_PASSWORD=<KEYCLOAK_ADMIN_PASSWORD from .env> \

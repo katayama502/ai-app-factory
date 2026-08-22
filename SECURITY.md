@@ -2,8 +2,9 @@
 
 ## Supported Versions
 
-Until v1.0 GA, there is no stability guarantee — this is pre-M1 scaffolding. Once released,
-the latest minor version and the one before it are supported.
+Until v1.0 GA, there is no stability guarantee and no tagged release yet — see
+[`ROADMAP.md`](./ROADMAP.md) for the current state. Once released, the latest minor version and
+the one before it are supported.
 
 ## Reporting a Vulnerability
 

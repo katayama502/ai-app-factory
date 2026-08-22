@@ -4,6 +4,10 @@
 
 [English README](./README.md) · [設計書](./docs/design/) · [ロードマップ](./ROADMAP.md) · [セキュリティ設計](./docs/design/02_SECURITY_セキュリティ設計書.md)
 
+**初めての方・エンジニアではない方へ**：まず **[GETTING_STARTED.ja.md](./GETTING_STARTED.ja.md)**
+を読んでください——専門知識を前提としない、やさしい言葉のステップバイステップガイドです。この
+READMEは技術者向けのリファレンスで、ガイドの方が最初の入り口として適しています。
+
 > **現在の状態: M1（Walking Skeleton）のDoDを達成し、M4の実認証部分に加えて、M0/M2/M3/M5/M6/M7/M9/M10
 > の軽量版スライスも完了。** AIを一切介さず手書きした App Specが、分離されたPostgresスキーマにコンパイル
 > され、実際のKeycloakログイン（Authorization Code + PKCE、BFFパターン）で保護されたブラウザアプリと
@@ -81,6 +85,7 @@ cp deploy/compose/.env.example deploy/compose/.env
 # deploy/compose/.env を編集 — POSTGRES_PASSWORD / VALKEY_PASSWORD / KEYCLOAK_ADMIN_PASSWORD を設定
 docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up -d
 
+AIAF_PG_USER=<.envのPOSTGRES_USER。変更していなければ "factory"> \
 AIAF_PG_PASSWORD=<.envのPOSTGRES_PASSWORD> \
 AIAF_KEYCLOAK_URL=http://127.0.0.1:8180 \
 AIAF_KEYCLOAK_ADMIN_PASSWORD=<.envのKEYCLOAK_ADMIN_PASSWORD> \
