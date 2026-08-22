@@ -23,9 +23,9 @@
     "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@vitest/coverage-v8": "^2.1.0",
-    "typescript": "^5.9.0",
-    "vitest": "^2.1.0"
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

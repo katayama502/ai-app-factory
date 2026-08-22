@@ -36,12 +36,12 @@
     "@aiappfactory/runtime": "workspace:*",
     "@aiappfactory/sdk-gateway": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",
-    "@eslint/js": "^9.15.0",
-    "eslint": "^9.15.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
     "pg": "^8.13.0",
     "tsx": "^4.19.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.9.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.15.0"
   }
 }
