@@ -15,14 +15,17 @@ reference; that guide is the on-ramp.
 > Keycloak login (Authorization Code + PKCE, BFF pattern), not a dev placeholder: register a
 > record via an HTML form, see it in a list, search it, and have row-level access control hold for
 > different logged-in users. A natural-language description can also generate that same kind of
-> Spec, self-repairing against real validation errors (M2's core loop) — though only tested against
-> a fake model, not a live Claude API call yet — and a Spec passes through a deterministic, signed
-> GREEN/YELLOW/RED Security Gate (M3's Gate 0/2/6 slice) before anything would publish it. The
-> infra a third party needs (Postgres/Valkey/Keycloak) now boots via `docker compose`, and a single
-> `pnpm start` automates the whole setup — passwords, waiting for readiness, launching the demo —
-> with nothing to hand-edit (M5's infra slice; the app processes themselves still run as host Node
-> commands, not container images), a `pnpm doctor` pre-flight check reports what's missing with
-> Japanese remediation hints (M6's
+> Spec through an actual web UI now (`apps/console`, M2's Builder UI slice) — describe an app,
+> watch it get generated, scored by a deterministic signed GREEN/YELLOW/RED Security Gate (M3's
+> Gate 0/2/6 slice), and — if it isn't RED — published into a real, live, loggable-into app, no
+> restart needed. Generation itself is still only tested against a fake/offline model, not a live
+> Claude API call (plug in `ANTHROPIC_API_KEY` and the same UI switches to real generation — the
+> code path is wired and typechecked, just not exercised against the live API in this dev
+> environment). The infra a third party needs (Postgres/Valkey/Keycloak) now boots via
+> `docker compose`, and a single `pnpm start` automates the whole setup — passwords, waiting for
+> readiness, launching the demo and the Builder UI — with nothing to hand-edit (M5's infra slice;
+> the app processes themselves still run as host Node commands, not container images), a
+> `pnpm doctor` pre-flight check reports what's missing with Japanese remediation hints (M6's
 > slice), and 5 of a planned 10 App Spec templates exist (M7's slice). Against the security threat
 > model's own S-01–S-18 numbering, 9 are covered (traced to their tests, 3 newly added) and 9 are
 > honestly marked not-yet-applicable — no unbuilt feature (M9's slice); archiving an app now
@@ -31,8 +34,10 @@ reference; that guide is the on-ramp.
 > dependency tree, wired into CI (M10's slice — signing and an actual GA release remain undone,
 > since there's nothing to sign yet and declaring GA is a business decision, not a coding task).
 > M8 (real-company pilots) and M11 (desktop installers) were deliberately not attempted — see
-> ROADMAP.md for why. None of this is wired into a UI or a publish flow yet — every piece above is
-> a tested library, not a running product. See [ROADMAP.md](./ROADMAP.md) for the exact state.
+> ROADMAP.md for why. This is still a single-operator local dev/demo experience, not an
+> authenticated multi-tenant product (that's M4's much larger, unbuilt Console/App Store) — but
+> the "describe → generate → publish → use" loop itself is real, not a mock.
+> See [ROADMAP.md](./ROADMAP.md) for the exact state.
 
 ## The idea, in one sentence
 
@@ -99,10 +104,10 @@ full target layout and OSS governance model.
 
 ## Try it today
 
-Twelve packages are real, tested code so far — enough to log in through an actual Keycloak login
+Thirteen packages are real, tested code so far — enough to log in through an actual Keycloak login
 page, register a record through an HTML form, see row-level access control hold for different
-logged-in users, generate that same kind of Spec from a plain-language description, and run it
-through a deterministic, signed security verdict — with no UI or publish flow wired up yet:
+logged-in users, and — through an actual web UI — describe an app in plain language, generate and
+score it, and publish it into a real, live, loggable-into app, all in one sitting:
 
 - **`packages/app-spec`** validates App Specs and enforces referential-integrity and
   security-shaped rules (no internal-IP egress, `actor` fields must be system-injected, etc.).
@@ -138,7 +143,19 @@ through a deterministic, signed security verdict — with no UI or publish flow 
   `validateAppSpec` a hand-written Spec goes through, and on failure feeds the validation issues
   back for up to 3 self-repair attempts. Tested against a deterministic `FakeProvider`; the real
   `AnthropicProvider` is implemented but not yet exercised against a live API call (no key in this
-  dev environment).
+  dev environment) — see `apps/console` below for how it plugs in when a key *is* available.
+- **`apps/console`** is the Builder UI (04_IMPLEMENTATION E2-8, lightweight slice): a small web
+  page — describe an app, get a generated Spec + Security Gate verdict, and (if it isn't RED) a
+  "Publish" button that compiles it via `spec-compiler`, provisions a Keycloak realm role + a
+  dedicated OIDC client (ADR-006 — never reused across apps), and registers it live into the same
+  in-memory registries `sdk-gateway`/`apps/runtime` already serve from — no restart. Uses
+  `AnthropicProvider` automatically when `ANTHROPIC_API_KEY` is set; otherwise falls back to a
+  `TemplatePickerProvider` (also in `ai-core`) that keyword-matches the description against the 5
+  shipped templates — an honest, zero-config "demo mode" banner says so on the page. Not an
+  authenticated multi-tenant Console (M4's much larger, unbuilt item) — a local, single-operator
+  dev/demo front door. Verified end to end for real: described an app in Japanese, generated it,
+  published it, logged in as `alice` through Keycloak's actual hosted login page, and submitted a
+  record into the newly-published app — all against a real Postgres + Keycloak stack.
 
 All five integration suites (spec-compiler, sdk-gateway, auth-bff, runtime, setup-guard) apply
 real requests to a real Postgres server and/or a real, freshly-provisioned Keycloak and prove the
@@ -169,6 +186,7 @@ To actually click around instead of just running tests:
 pnpm dev:sample
 # → http://sales-daily-report.apps.localhost:4200/pages/0
 # → http://expense-request.apps.localhost:4200/pages/0
+# → http://127.0.0.1:4300  (Builder UI — describe an app, generate, publish; see apps/console above)
 # login: alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
@@ -177,8 +195,9 @@ persistent local `aiaf-dev-keycloak` Docker container, each app served from its 
 `*.apps.localhost` origin (and its own OIDC client) by the same Runtime process —
 `*.localhost` resolves to loopback automatically in Chrome and most resolvers (RFC 6761), no
 `/etc/hosts` edit needed. Logging in redirects to Keycloak's own hosted login page — this is
-real SSO, not a mock. A manual convenience script (`scripts/dev-server.ts`), not part of the
-shipped product.
+real SSO, not a mock. Also boots the Builder UI (`apps/console`) on port 4300, sharing the same
+live registries — publishing an app there takes effect immediately, no restart. A manual
+convenience script (`scripts/dev-server.ts`), not part of the shipped product.
 
 ### Run via Docker Compose (M5 — no local Postgres/Keycloak install needed)
 

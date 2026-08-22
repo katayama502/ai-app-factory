@@ -25,8 +25,10 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AnthropicProvider, TemplatePickerProvider, type LlmProvider, type TemplateCandidate } from "@aiappfactory/ai-core";
 import { parseAppSpecYaml, type AppSpec } from "@aiappfactory/app-spec";
 import { createOidcAuth, type OidcAuth } from "@aiappfactory/auth-bff";
+import { buildConsoleServer } from "@aiappfactory/console";
 import { quoteIdent } from "@aiappfactory/expr";
 import {
   KeycloakAdminClient,
@@ -76,7 +78,19 @@ const APPS: TemplateApp[] = [
   { templateDir: "expense-request", hostname: "expense-request.apps.localhost", clientId: "expense-request" },
 ];
 
+// All 5 templates (not just the 2 booted live above) — candidates for the Builder
+// UI's offline TemplatePickerProvider fallback (packages/console), keyed by
+// keywords a description in Japanese or English might plausibly contain.
+const TEMPLATE_KEYWORDS: Record<string, string[]> = {
+  "sales-daily-report": ["営業", "日報", "sales", "report"],
+  "expense-request": ["経費", "精算", "expense", "receipt", "reimburse"],
+  "meeting-room": ["会議室", "予約", "room", "reservation", "booking"],
+  "it-equipment-request": ["it機器", "貸与", "パソコン", "laptop", "equipment", "device"],
+  "vacation-request": ["休暇", "有給", "休み", "vacation", "leave", "pto"],
+};
+
 const CLIENT_SECRET = "dev-only-not-a-real-secret"; // same for every dev client — fine for local dev, never for a real deployment
+const DEMO_USERNAMES = ["alice", "bob", "carol"];
 
 async function ensureDatabase(): Promise<void> {
   const admin = new pg.Pool({ host: PGHOST, port: PGPORT, user: PGUSER, database: "postgres", ...(PGPASSWORD ? { password: PGPASSWORD } : {}) });
@@ -249,12 +263,48 @@ async function main(): Promise<void> {
   const runtime = buildRuntimeServer({ registry: runtimeRegistry });
   await runtime.listen({ port: 4200, host: "::" });
 
+  // Builder UI (packages/console): real Claude generation if ANTHROPIC_API_KEY is
+  // set, otherwise a zero-config offline fallback that picks among ALL 5 shipped
+  // templates by keyword match — so "describe an app" works with nothing to sign
+  // up for or pay, out of the box.
+  const usingRealProvider = Boolean(process.env.ANTHROPIC_API_KEY);
+  const provider: LlmProvider = usingRealProvider
+    ? new AnthropicProvider()
+    : new TemplatePickerProvider(
+        Object.entries(TEMPLATE_KEYWORDS).map(
+          ([templateDir, keywords]): TemplateCandidate => ({ spec: loadTemplate(templateDir), keywords })
+        )
+      );
+
+  const console_ = buildConsoleServer({
+    provider,
+    usingRealProvider,
+    publishDeps: {
+      adminPool,
+      pgHost: PGHOST,
+      pgPort: PGPORT,
+      devDb: DEV_DB,
+      appRolePassword: APP_ROLE_PASSWORD,
+      kcAdmin,
+      kcBaseUrl: KC_BASE_URL,
+      realm: REALM,
+      clientSecret: CLIENT_SECRET,
+      gatewayRegistry,
+      runtimeRegistry,
+      gatewayUrl: "http://127.0.0.1:4100",
+      runtimePort: 4200,
+      demoUsernames: DEMO_USERNAMES,
+    },
+  });
+  await console_.listen({ port: 4300, host: "127.0.0.1" });
+
   console.log("");
   console.log(`sdk-gateway : http://127.0.0.1:4100 (internal API only)`);
   console.log(`keycloak    : ${KC_BASE_URL} (admin/${KC_ADMIN_PASSWORD})`);
   for (const { hostname } of APPS) {
     console.log(`runtime     : http://${hostname}:4200/pages/0`);
   }
+  console.log(`builder     : http://127.0.0.1:4300 (${usingRealProvider ? "real AI" : "offline demo mode"} — describe an app, generate, publish)`);
   console.log(`dev users   : alice/alice-dev, bob/bob-dev, carol/carol-dev`);
   console.log("");
 }

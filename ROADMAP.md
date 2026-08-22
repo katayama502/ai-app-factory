@@ -170,14 +170,14 @@ Goal: a hand-written Spec, with no AI involved, becomes a running app reachable 
 **M1 is functionally complete.** Every checkbox above is done; nothing on this milestone's own
 Definition of Done is outstanding.
 
-## M2 — AI Builder (lightweight slice: Spec generation + self-repair; rest not started)
+## M2 — AI Builder (lightweight slice: Spec generation + self-repair + a real Builder UI)
 
 Goal per 04_IMPLEMENTATION §4: natural language → Spec generation, a Builder UI, preview,
 conversational editing (template diff / JSON Patch), a requirement-elicitation multi-turn flow,
-template vector search, and an evaluation set. Scoped down hard for a first pass — no UI, no
-conversational editing, no multi-turn elicitation; just the core generate/validate/self-repair loop
-(E2-6/E2-7), because everything else in this milestone is built *on top of* that loop rather than
-alongside it.
+template vector search, and an evaluation set. Scoped down hard for a first pass — no
+conversational editing, no multi-turn elicitation, no template vector search, no evaluation set;
+just the core generate/validate/self-repair loop (E2-6/E2-7) plus a real, working Builder UI
+(E2-8) in front of it, because a loop nothing can reach isn't something a reader can actually try.
 
 - [x] `packages/app-spec`: `getAppSpecJsonSchema()` derives a JSON Schema from `appSpecSchema` via
       Zod v4's native `z.toJSONSchema()` — the same Zod schema that's already the single source of
@@ -214,8 +214,43 @@ alongside it.
     the SSRF-relevant egress rule. Getting this prompt slightly wrong only costs an extra
     self-repair round-trip, not a safety gap — nothing it gets wrong can reach a compiled app
     without passing the same validator a hand-written Spec goes through.
-- [ ] Builder UI (E2-8) — no UI at all; `generateAppSpec` is a library function today, nothing
-      calls it from an HTTP endpoint or a browser
+- [x] **Builder UI (E2-8)** — `apps/console` (`pnpm start` boots it on port 4300, or `pnpm
+      dev:sample` for the fully-manual flow): a web page — describe an app, `generateAppSpec()`
+      runs for real, the result is scored by `@aiappfactory/security-gate`'s `runSecurityGate`, and
+      (if the verdict isn't RED) a "publish" action compiles it via `spec-compiler`, provisions a
+      Keycloak realm role + a dedicated OIDC client (ADR-006 — never reused across apps), and
+      registers it live into the SAME in-memory `AppRegistry`/`RuntimeAppRegistry` instances
+      `sdk-gateway`/`apps/runtime` already serve from — no restart, no separate publish step.
+  - **Provider selection**: `AnthropicProvider` automatically when `ANTHROPIC_API_KEY` is set,
+    otherwise `packages/ai-core`'s new `TemplatePickerProvider` — a zero-config offline fallback
+    that keyword-matches the description against all 5 shipped templates and returns that
+    (already-valid) Spec as if it had just been generated. This is NOT real generation — it can
+    only return one of its candidates verbatim — but it exercises the exact same
+    generate→validate→score→publish pipeline every other provider does, with nothing to sign up
+    for or pay, and the page's own banner says plainly which mode is active.
+  - **`packages/keycloak-admin` additions** needed to publish at runtime (not just once at process
+    startup): `ensureRealmRole` (idempotent — a 409 "already exists" is success, since two
+    published apps can legitimately share a role name), `findUserIdByUsername` +
+    `assignRealmRoleToUser` (grant an already-existing demo user, e.g. `alice`, the newly
+    published Spec's first-listed role, so whoever just published it can log in and try it
+    immediately) — 6 new unit tests (mocked fetch, matching this package's existing style).
+  - **Verified end to end for real**, not just unit-tested: against an isolated real Postgres +
+    Keycloak stack, described "有給休暇を申請するためのアプリを作りたい" in Japanese, confirmed the
+    offline provider correctly keyword-matched `vacation-request`, published it, confirmed the new
+    hostname's `/healthz` → 200 and an unauthenticated page → 302 to `/auth/login`, logged in as
+    `alice` through Keycloak's *actual* hosted login page (not a mock), submitted the form, and
+    confirmed the record appeared correctly on the list page — then re-published the same
+    description and confirmed it correctly reports "already published" instead of erroring or
+    re-provisioning. Also 15 unit tests (`apps/console`) covering the HTTP layer with a
+    `FakeProvider`: the form page, a successful generation, an SSRF-shaped Spec failing Gate 0
+    before a verdict is even computed, a Gate-2-flagged (leaked secret) Spec coming back RED with
+    no publish button offered, and `/publish` independently re-validating and re-scoring rather
+    than trusting whatever `/generate` said moments earlier.
+  - **Explicitly NOT this**: an authenticated, multi-tenant Console (M4's much larger, unbuilt
+    App Store / admin UI) — this is a local, single-operator dev/demo front door, not gated behind
+    login itself, matching `pnpm start`'s existing trust model. Also not idempotent against a
+    *partial* publish failure (e.g. the Keycloak client gets created but the DB schema doesn't) —
+    a known simplification, not a claimed guarantee.
 - [ ] Conversational editing via template diff / JSON Patch (E2-10) — not built; every generation
       is a fresh Spec, there's no "edit the existing one" flow
 - [ ] Multi-turn requirement elicitation (E2-4) — not built; `generateAppSpec` takes one description
@@ -329,10 +364,21 @@ one piece least honest to leave in place — everything else below is still genu
 - [ ] `company.auth.currentUser()` — expose the now-real session identity through Company SDK
       itself, not just apps/runtime's own request context
 - [ ] User/department/role management UI (E4-2)
-- [ ] Spec `access` → Keycloak client role sync (E4-3) — roles are provisioned by hand
-      (`scripts/dev-server.ts`, or a test's own setup) today, not derived from a Spec's
-      `access.roles` automatically
-- [ ] App Store (E4-5), one-click publish flow (E4-6), audit log (E4-7) — none started
+- [x]/[ ] Spec `access` → Keycloak role sync (E4-3) — **partially done**: `apps/console`'s publish
+      step (see M2 above) DOES derive Keycloak realm roles from a Spec's `access.roles`
+      automatically now, via `ensureRealmRole`, whenever an app is published through the Builder
+      UI. What's still missing: this only covers the *creation* side (new roles for a newly
+      published app) — there's no sync for a *changed* Spec (a role removed from `access.roles`
+      isn't removed from Keycloak), and `scripts/dev-server.ts`'s own template boot-up still
+      provisions its fixed demo roles by hand, not through this path.
+- [ ] App Store (E4-5) — browsing/searching published apps, versioning, an admin listing UI — not
+      started; `apps/console` only ever shows you the one app you just described, nothing else
+- [x]/[ ] One-click publish flow (E4-6) — **partially done**: `apps/console`'s "publish" button
+      (M2 above) IS a real one-click publish — compiles the Spec, provisions Keycloak, registers
+      it live, no restart. What's missing from the full E4-6 vision: no approval/review step
+      before publish (the Security Gate verdict is advisory here, not an enforced human gate —
+      RED blocks it, YELLOW doesn't pause for anyone), and no un-publish/rollback action.
+- [ ] Audit log (E4-7) — not started; nothing records who generated/published what, when
 - [ ] Realm/org provisioning is manual (`createRealm` called once by hand) — no
       "new organization signs up → realm created automatically" flow
 

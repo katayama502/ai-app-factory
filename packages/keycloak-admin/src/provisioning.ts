@@ -82,6 +82,43 @@ export async function createRealmRole(admin: KeycloakAdminClient, realm: string,
   await admin.request("POST", `/admin/realms/${realm}/roles`, { name: roleName });
 }
 
+/**
+ * Idempotent variant of `createRealmRole` — a 409 (role name already exists) is
+ * treated as success, not an error. Needed once role provisioning can happen at
+ * ANY time (e.g. publishing an AI-generated app after the realm is already up),
+ * not just once during initial realm setup — two Specs can legitimately declare
+ * the same role name (e.g. two different apps both use "employee").
+ */
+export async function ensureRealmRole(admin: KeycloakAdminClient, realm: string, roleName: string): Promise<void> {
+  try {
+    await createRealmRole(admin, realm, roleName);
+  } catch (error) {
+    if (error instanceof KeycloakAdminError && error.status === 409) return;
+    throw error;
+  }
+}
+
+/** Looks up a user's internal id by their exact username — needed to grant a role to a user that already exists (e.g. a demo user) rather than only at user-creation time. */
+export async function findUserIdByUsername(admin: KeycloakAdminClient, realm: string, username: string): Promise<string | undefined> {
+  const users = await admin.request<Array<{ id: string; username: string }>>(
+    "GET",
+    `/admin/realms/${realm}/users?username=${encodeURIComponent(username)}&exact=true`
+  );
+  return users?.find((u) => u.username === username)?.id;
+}
+
+/**
+ * Grants an existing realm role to an existing user. `createUser` does this same
+ * two-call pattern (look up the role, then POST it to the user's role-mappings)
+ * inline at creation time; this is the standalone version for granting a role to a
+ * user who already exists — e.g. retroactively giving a demo user access to an app
+ * published after that user was created.
+ */
+export async function assignRealmRoleToUser(admin: KeycloakAdminClient, realm: string, userId: string, roleName: string): Promise<void> {
+  const role = await admin.request<{ id: string; name: string }>("GET", `/admin/realms/${realm}/roles/${roleName}`);
+  await admin.request("POST", `/admin/realms/${realm}/users/${userId}/role-mappings/realm`, [role]);
+}
+
 /** Looks up a client's internal UUID by its clientId (the human-readable one every other function here takes) — the Admin API's own delete/mapper endpoints need the UUID, not the clientId. */
 async function findClientUuid(admin: KeycloakAdminClient, realm: string, clientId: string): Promise<string | undefined> {
   const clients = await admin.request<Array<{ id: string; clientId: string }>>(

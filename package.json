@@ -30,8 +30,10 @@
     "sbom": "tsx scripts/sbom.ts"
   },
   "devDependencies": {
+    "@aiappfactory/ai-core": "workspace:*",
     "@aiappfactory/app-spec": "workspace:*",
     "@aiappfactory/auth-bff": "workspace:*",
+    "@aiappfactory/console": "workspace:*",
     "@aiappfactory/expr": "workspace:*",
     "@aiappfactory/keycloak-admin": "workspace:*",
     "@aiappfactory/runtime": "workspace:*",

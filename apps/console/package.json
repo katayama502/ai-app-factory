@@ -1,0 +1,46 @@
+{
+  "name": "@aiappfactory/console",
+  "version": "0.1.0",
+  "description": "The AI Builder web UI (04_IMPLEMENTATION E2-8, lightweight slice): describe an app in plain language, watch it get generated (or picked from a template when no LLM key is configured), scored by the Security Gate, and — if it isn't RED — published live into the same running Runtime/SDK-Gateway a hand-written Spec would be. Not an authenticated multi-tenant Console (that's a much larger, unbuilt M4 item) — a local, single-operator dev/demo front door.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:coverage": "vitest run --coverage --exclude '**/integration/**'"
+  },
+  "dependencies": {
+    "@aiappfactory/ai-core": "workspace:*",
+    "@aiappfactory/app-spec": "workspace:*",
+    "@aiappfactory/auth-bff": "workspace:*",
+    "@aiappfactory/keycloak-admin": "workspace:*",
+    "@aiappfactory/risk-engine": "workspace:*",
+    "@aiappfactory/runtime": "workspace:*",
+    "@aiappfactory/sdk-gateway": "workspace:*",
+    "@aiappfactory/security-gate": "workspace:*",
+    "@aiappfactory/spec-compiler": "workspace:*",
+    "@fastify/formbody": "^9.0.0",
+    "fastify": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "pg": "^8.13.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}

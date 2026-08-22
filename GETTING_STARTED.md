@@ -29,9 +29,13 @@ Why does that matter? Because the AI literally *cannot* write something dangerou
 someone is checking its work after the fact, but because the form it fills out has no blank where
 dangerous code could go. That's the whole safety idea behind this project.
 
-Right now, the "AI fills out the form" part works, but only against a test AI, not a real one (see
-[ROADMAP.md](./ROADMAP.md)). What you'll run today is a **hand-written example app** — proof that
-the "form → real working app" half of the idea works end to end.
+You can try the actual "describe an app → it gets built" flow yourself, through a web page — step
+5 below. Without your own AI key it runs in an honest "demo mode" (it picks the closest match from
+a small set of pre-written apps instead of writing something brand new — still real generation,
+validation, security scoring, and publishing, just choosing from a fixed menu); plug in an
+`ANTHROPIC_API_KEY` and the exact same page switches to real AI generation. Either way, everything
+downstream — validation, the Security Gate, and publishing it into a real, live, loggable-into app
+— is the real thing, not a mock.
 
 ## 2. What you need before you start
 
@@ -75,6 +79,7 @@ should see something like:
 ```
 runtime     : http://sales-daily-report.apps.localhost:4200/pages/0
 runtime     : http://expense-request.apps.localhost:4200/pages/0
+builder     : http://127.0.0.1:4300 (offline demo mode — describe an app, generate, publish)
 dev users   : alice/alice-dev, bob/bob-dev, carol/carol-dev
 ```
 
@@ -91,15 +96,38 @@ submit it, then look at the list page — your entry is there. If you log out an
 `bob` instead, you will **not** see alice's entries — each person only sees their own, exactly
 like a real company tool should behave.
 
-## 5. What are you actually looking at?
+## 5. Try the AI Builder — describe an app yourself
+
+Open **http://127.0.0.1:4300** in your browser. This is the actual "AI generates an app" flow,
+not just something described in prose — a text box where you describe what you want, a button,
+and it builds it.
+
+Type something like "会議室の予約を管理したい" ("I want to manage meeting room bookings") or "I need
+an app to track IT equipment loans" and click **生成する** (Generate). You'll see:
+
+- The generated App Spec (the same kind of "safe form" from step 1) as plain JSON
+- A Security Gate verdict — GREEN/YELLOW/RED, with any specific findings listed
+- If it isn't RED, a **このアプリを公開する** (Publish this app) button
+
+Click Publish, and the app becomes real: a new schema and login role are provisioned, and you get
+a link straight to it (`http://<the-app>.apps.localhost:4200/pages/0`) — log in as `alice` again
+and it's already there, working, with alice automatically granted access. No restart needed.
+
+If you don't have your own `ANTHROPIC_API_KEY`, the page says so at the top ("デモモードで動作中
+です") and picks the closest match among 5 pre-written templates by keyword instead of writing
+something new — but the generation loop, the validation, the Security Gate scoring, and the
+publish step you just watched are all the genuine pipeline, not a mock built for this demo.
+
+## 6. What are you actually looking at?
 
 Open the file [`templates/sales-daily-report/app.yaml`](./templates/sales-daily-report/app.yaml)
 in a text editor. That file — not any hand-written screen code — is the entire description of the
-app you just used: what fields the form has, what the list page shows, and who's allowed to see
-what. The Runtime you started in step 3 read that file and built the working app from it. This is
-the "safe form instead of code" idea from step 1, made concrete.
+app you used in step 4: what fields the form has, what the list page shows, and who's allowed to
+see what. The Runtime you started in step 3 read that file and built the working app from it —
+exactly the same thing the Builder in step 5 just did automatically. This is the "safe form
+instead of code" idea from step 1, made concrete.
 
-## 6. When you're done
+## 7. When you're done
 
 Press Ctrl+C in the terminal running `pnpm start`. The database and login system keep running
 quietly in the background (so your data is still there next time you run `pnpm start`) — if you'd

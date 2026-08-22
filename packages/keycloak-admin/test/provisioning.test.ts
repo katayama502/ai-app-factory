@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeycloakAdminClient } from "../src/client.js";
-import { deleteClient, deleteRealmRole } from "../src/provisioning.js";
+import { assignRealmRoleToUser, deleteClient, deleteRealmRole, ensureRealmRole, findUserIdByUsername } from "../src/provisioning.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -65,5 +65,58 @@ describe("deleteRealmRole (E9-8: ARCHIVED resource cleanup)", () => {
   it("still throws on a real server error — only 404 is treated as an acceptable end state", async () => {
     const admin = await authenticatedAdmin(async () => new Response("internal error", { status: 500 }));
     await expect(deleteRealmRole(admin, "factory-dev", "sales_member")).rejects.toThrow();
+  });
+});
+
+describe("ensureRealmRole (idempotent role creation, for publishing at runtime)", () => {
+  it("creates the role and succeeds", async () => {
+    const admin = await authenticatedAdmin(async (url, init) => {
+      expect(init?.method).toBe("POST");
+      expect(url).toBe("http://kc/admin/realms/factory-dev/roles");
+      return new Response(null, { status: 201 });
+    });
+    await expect(ensureRealmRole(admin, "factory-dev", "employee")).resolves.toBeUndefined();
+  });
+
+  it("treats a 409 (role already exists) as success, not an error — two published apps can share a role name", async () => {
+    const admin = await authenticatedAdmin(async () => new Response("role already exists", { status: 409 }));
+    await expect(ensureRealmRole(admin, "factory-dev", "employee")).resolves.toBeUndefined();
+  });
+
+  it("still throws on a real server error — only 409 is treated as an acceptable end state", async () => {
+    const admin = await authenticatedAdmin(async () => new Response("internal error", { status: 500 }));
+    await expect(ensureRealmRole(admin, "factory-dev", "employee")).rejects.toThrow();
+  });
+});
+
+describe("findUserIdByUsername", () => {
+  it("returns the matching user's id", async () => {
+    const admin = await authenticatedAdmin(async (url) => {
+      expect(url).toBe("http://kc/admin/realms/factory-dev/users?username=alice&exact=true");
+      return new Response(JSON.stringify([{ id: "user-abc", username: "alice" }]), { status: 200 });
+    });
+    expect(await findUserIdByUsername(admin, "factory-dev", "alice")).toBe("user-abc");
+  });
+
+  it("returns undefined when no user matches", async () => {
+    const admin = await authenticatedAdmin(async () => new Response(JSON.stringify([]), { status: 200 }));
+    expect(await findUserIdByUsername(admin, "factory-dev", "ghost")).toBeUndefined();
+  });
+});
+
+describe("assignRealmRoleToUser", () => {
+  it("looks up the role by name, then POSTs it to the user's role-mappings", async () => {
+    const calls: string[] = [];
+    const admin = await authenticatedAdmin(async (url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/roles/employee")) return new Response(JSON.stringify({ id: "role-id", name: "employee" }), { status: 200 });
+      if (url.endsWith("/users/user-abc/role-mappings/realm")) {
+        expect(JSON.parse(init?.body as string)).toEqual([{ id: "role-id", name: "employee" }]);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    await assignRealmRoleToUser(admin, "factory-dev", "user-abc", "employee");
+    expect(calls.some((c) => c.startsWith("POST") && c.endsWith("/users/user-abc/role-mappings/realm"))).toBe(true);
   });
 });
