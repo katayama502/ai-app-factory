@@ -26,9 +26,9 @@
     "@aiappfactory/risk-engine": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@vitest/coverage-v8": "^2.1.0",
+    "@types/node": "^26.3.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.9.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.11"
   }
 }
