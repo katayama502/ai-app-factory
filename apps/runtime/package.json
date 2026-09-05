@@ -35,11 +35,11 @@
     "@aiappfactory/keycloak-admin": "workspace:*",
     "@aiappfactory/sdk-gateway": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.4.1",
     "@types/pg": "^8.11.0",
-    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "pg": "^8.13.0",
     "typescript": "^5.9.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.11"
   }
 }
