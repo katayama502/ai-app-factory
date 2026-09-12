@@ -28,7 +28,7 @@
     "@aiappfactory/auth-bff": "workspace:*",
     "@aiappfactory/company-sdk": "workspace:*",
     "@fastify/formbody": "^9.0.0",
-    "fastify": "^5.1.0"
+    "fastify": "^5.12.3"
   },
   "devDependencies": {
     "@aiappfactory/expr": "workspace:*",
