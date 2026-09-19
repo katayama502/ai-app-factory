@@ -33,7 +33,7 @@
     "@aiappfactory/security-gate": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",
     "@fastify/formbody": "^9.0.0",
-    "fastify": "^5.1.0"
+    "fastify": "^5.12.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
