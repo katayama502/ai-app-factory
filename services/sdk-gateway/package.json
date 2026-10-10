@@ -27,7 +27,7 @@
     "@aiappfactory/app-spec": "workspace:*",
     "@aiappfactory/expr": "workspace:*",
     "fastify": "^5.1.0",
-    "pg": "^8.13.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@aiappfactory/company-sdk": "workspace:*",
