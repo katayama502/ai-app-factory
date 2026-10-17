@@ -32,7 +32,7 @@
     "@aiappfactory/keycloak-admin": "workspace:*",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^2.1.0",
-    "fastify": "^5.1.0",
+    "fastify": "^5.12.7",
     "typescript": "^5.9.0",
     "vitest": "^2.1.0"
   }
