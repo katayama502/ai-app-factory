@@ -32,7 +32,7 @@
     "@aiappfactory/sdk-gateway": "workspace:*",
     "@aiappfactory/security-gate": "workspace:*",
     "@aiappfactory/spec-compiler": "workspace:*",
-    "@fastify/formbody": "^9.0.0",
+    "@fastify/formbody": "^9.0.1",
     "fastify": "^5.1.0"
   },
   "devDependencies": {
