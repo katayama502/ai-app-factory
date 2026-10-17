@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@aiappfactory/app-spec": "workspace:*",
-    "@anthropic-ai/sdk": "^0.120.0"
+    "@anthropic-ai/sdk": "^0.133.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
